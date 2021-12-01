@@ -2,3 +2,4 @@ a.out
 **/*.s
 **/*.o
 tmp
+riscv64-chibicc
