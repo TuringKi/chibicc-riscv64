@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -122,6 +123,7 @@ typedef enum {
   ND_SUB,
   ND_MUL,
   ND_DIV,
+  ND_NEG,
   ND_NUM,
 } NodeKind;
 
@@ -136,6 +138,12 @@ struct Node {
 static Node *new_node(NodeKind kind) {
   Node *node = calloc(1, sizeof(Node));
   node->kind = kind;
+  return node;
+}
+
+static Node *new_unary(NodeKind kind, Node *expr) {
+  Node *node = new_node(kind);
+  node->lhs = expr;
   return node;
 }
 
@@ -155,6 +163,7 @@ static Node *new_num(int val) {
 
 static Node *expr(Token **rest, Token *tok);
 static Node *mul(Token **rest, Token *tok);
+static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
 static Node *expr(Token **rest, Token *tok) {
@@ -179,23 +188,36 @@ static Node *expr(Token **rest, Token *tok) {
 
 static Node *mul(Token **rest, Token *tok) {
 
-  Node *node = primary(&tok, tok);
+  Node *node = unary(&tok, tok);
 
   for (;;) {
 
     if (equal(tok, "*")) {
-      node = new_binary(ND_MUL, node, primary(&tok, tok->next));
+      node = new_binary(ND_MUL, node, unary(&tok, tok->next));
       continue;
     }
 
     if (equal(tok, "/")) {
-      node = new_binary(ND_DIV, node, primary(&tok, tok->next));
+      node = new_binary(ND_DIV, node, unary(&tok, tok->next));
       continue;
     }
 
     *rest = tok;
     return node;
   }
+}
+
+static Node *unary(Token **rest, Token *tok) {
+
+  if (equal(tok, "+")) {
+    return unary(rest, tok->next);
+  }
+
+  if (equal(tok, "-")) {
+    return new_unary(ND_NEG, unary(rest, tok->next));
+  }
+
+  return primary(rest, tok);
 }
 
 static Node *primary(Token **rest, Token *tok) {
@@ -218,29 +240,52 @@ static Node *primary(Token **rest, Token *tok) {
 static int depth;
 
 static void push(void) {
-  printf("\t\tsub sp,sp,8");
-  printf("\t\tsd a0, sp");
+  printf("\t\taddi sp,sp,-8\n");
+  printf("\t\tsd a0, 0(sp)\n");
   depth++;
 }
 
 static void pop(char *arg) {
-  printf("\t\tld %s, sp", arg);
-  printf("\t\tadd sp,sp,8");
-  depth++;
+  printf("\t\tld %s, 0(sp)\n", arg);
+  printf("\t\taddi sp,sp,8\n");
+  depth--;
 }
 
 static void gen_expr(Node *node) {
 
-  if (node->kind == ND_NUM) {
-    printf("\t\taddi a0, a0, %d", node->val);
+  switch (node->kind) {
+  case ND_NEG:
+    gen_expr(node->lhs);
+    printf("\t\tsub a0, zero, a0\n");
+    return;
+  case ND_NUM:
+    printf("\t\taddi a0, zero, %d\n", node->val);
+    return;
   }
 
   gen_expr(node->rhs);
   push();
   gen_expr(node->lhs);
-  pop("a0");
+  pop("t0");
 
-  // swith(node->kind) {}
+  switch (node->kind) {
+  case ND_ADD:
+    printf("\t\tadd a0, a0, t0\n");
+    return;
+  case ND_SUB:
+    printf("\t\tsub a0, a0, t0\n");
+    return;
+  case ND_MUL:
+    printf("\t\tadd t1, zero, a0\n");
+    printf("\t\tmulh a0, t1, t0\n");
+    printf("\t\tmul a0, t1, t0\n");
+    return;
+  case ND_DIV:
+    printf("\t\tdivw a0, a0, t0\n");
+    return;
+  }
+
+  error("invalid expression");
 }
 
 int main(int argc, char **argv) {
@@ -253,29 +298,19 @@ int main(int argc, char **argv) {
   }
   current_input = argv[1];
   Token *tok = tokenize();
+  Node *node = expr(&tok, tok);
+
+  if (tok->kind != TK_EOF) {
+    error_tok(tok, "extra token");
+  }
 
   printf("\t.globl main\n");
   printf("main:\n");
-  // TODO:这里我们要考虑相加的数是否超过了立即数的位数。按照RISC-V的标准，I-Type
-  //指令的立即数只能有12位。
-  printf("\t\taddi a0, zero, %d\n", get_number(tok));
-  tok = tok->next;
 
-  while (tok->kind != TK_EOF) {
-    if (equal(tok, "+")) {
-      printf("\t\taddi a0, a0, %d\n", get_number(tok->next));
-      tok = tok->next->next;
-      continue;
-    }
-    if (equal(tok, "-")) {
-      printf("\t\taddi t0, zero, %d\n", get_number(tok->next));
-      printf("\t\tsub a0, a0, t0\n");
-      tok = tok->next->next;
-      continue;
-    }
+  gen_expr(node);
 
-    tok = tok->next;
-  }
   printf("\t\tret\n");
+
+  assert(depth == 0);
   return 0;
 }

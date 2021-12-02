@@ -24,5 +24,11 @@ assert 0 0
 assert 42 42
 assert 21 '5+20-4'
 assert 99 '10     - 2    + 2-    10+    99'
-assert 99 '10-     - 2    + 2-    10+    99'
+assert 18 '10*2-2'
+assert 9 '10- 2/2'
+assert 99 '1*99'
+assert 109 '10+99'
+assert 17 '10*      2    + 2-    10/    2'
+assert 16 '10*      2    + (2-    10)/    2'
+assert 14 '10*      2    + (-2-    10)/    2'
 echo OK
