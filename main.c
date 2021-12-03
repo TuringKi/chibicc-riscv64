@@ -74,6 +74,19 @@ static int get_number(Token *tok) {
   return tok->val;
 }
 
+static bool startwith(char *p, char *q) {
+  return strncmp(p, q, strlen(q)) == 0;
+}
+
+static int read_punct(char *p) {
+  if (startwith(p, "==") || startwith(p, ">=") || startwith(p, "!=") ||
+      startwith(p, "<=")) {
+    return 2;
+  }
+
+  return ispunct(*p) ? 1 : 0;
+}
+
 static Token *new_token(TokenKind kind, char *start, char *end) {
   Token *tok = calloc(1, sizeof(Token));
   if (tok == NULL) {
@@ -105,9 +118,10 @@ static Token *tokenize() {
       continue;
     }
 
-    if (ispunct(*p)) {
-      cur = cur->next = new_token(TK_PUNCT, p, p + 1);
-      p++;
+    int punck_len = read_punct(p);
+    if (punck_len) {
+      cur = cur->next = new_token(TK_PUNCT, p, p + punck_len);
+      p += cur->len;
       continue;
     }
 
@@ -124,6 +138,10 @@ typedef enum {
   ND_MUL,
   ND_DIV,
   ND_NEG,
+  ND_EQ,
+  ND_NE,
+  ND_LT,
+  ND_LE,
   ND_NUM,
 } NodeKind;
 
@@ -143,7 +161,7 @@ static Node *new_node(NodeKind kind) {
 
 static Node *new_unary(NodeKind kind, Node *expr) {
   Node *node = new_node(kind);
-  node->lhs = expr;
+  node->rhs = expr;
   return node;
 }
 
@@ -162,15 +180,72 @@ static Node *new_num(int val) {
 }
 
 static Node *expr(Token **rest, Token *tok);
+static Node *add(Token **rest, Token *tok);
+static Node *equality(Token **rest, Token *tok);
+static Node *relational(Token **rest, Token *tok);
 static Node *mul(Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
-static Node *expr(Token **rest, Token *tok) {
+static Node *expr(Token **rest, Token *tok) { return equality(rest, tok); }
+
+static Node *equality(Token **rest, Token *tok) {
+
+  Node *node = relational(&tok, tok);
+
+  for (;;) {
+    if (equal(tok, "==")) {
+      node = new_binary(ND_EQ, node, relational(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "!=")) {
+      node = new_binary(ND_NE, node, relational(&tok, tok->next));
+      continue;
+    }
+
+    *rest = tok;
+    return node;
+  }
+}
+
+static Node *relational(Token **rest, Token *tok) {
+
+  Node *node = add(&tok, tok);
+
+  for (;;) {
+
+    if (equal(tok, "<")) {
+      node = new_binary(ND_LT, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "<=")) {
+      node = new_binary(ND_LE, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, ">")) {
+      node = new_binary(ND_LT, add(&tok, tok->next), node);
+      continue;
+    }
+
+    if (equal(tok, ">=")) {
+      node = new_binary(ND_LE, add(&tok, tok->next), node);
+      continue;
+    }
+
+    *rest = tok;
+    return node;
+  }
+}
+
+static Node *add(Token **rest, Token *tok) {
 
   Node *node = mul(&tok, tok);
 
   for (;;) {
+
     if (equal(tok, "+")) {
       node = new_binary(ND_ADD, node, mul(&tok, tok->next));
       continue;
@@ -255,7 +330,7 @@ static void gen_expr(Node *node) {
 
   switch (node->kind) {
   case ND_NEG:
-    gen_expr(node->lhs);
+    gen_expr(node->rhs);
     printf("\t\tsub a0, zero, a0\n");
     return;
   case ND_NUM:
@@ -269,6 +344,25 @@ static void gen_expr(Node *node) {
   pop("t0");
 
   switch (node->kind) {
+  case ND_EQ:
+    printf("\t\tsub t1, t0, a0\n");
+    printf("\t\tsltiu a0, t1, 1\n");
+    return;
+  case ND_NE:
+    printf("\t\tsub t1, t0, a0\n");
+    printf("\t\tsltu a0, zero, t1\n");
+    return;
+  case ND_LE:
+    printf("\t\tsub t1, a0, t0\n");
+    printf("\t\tslt a0, zero, t1\n");
+    printf("\t\txori a0, a0, 1\n");
+    printf("\t\tandi a0, a0, 0xff\n");
+    return;
+  case ND_LT:
+    printf("\t\tsub t1, t0, a0\n");
+    printf("\t\tslt a0, zero, t1\n");
+    return;
+
   case ND_ADD:
     printf("\t\tadd a0, a0, t0\n");
     return;
@@ -281,7 +375,7 @@ static void gen_expr(Node *node) {
     printf("\t\tmul a0, t1, t0\n");
     return;
   case ND_DIV:
-    printf("\t\tdivw a0, a0, t0\n");
+    printf("\t\tdiv a0, a0, t0\n");
     return;
   }
 

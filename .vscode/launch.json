@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/${fileBasenameNoExtension}",
-            "args": ["10*      2    + 2-    10*    99"],
+            "args": ["10- 2/2"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
