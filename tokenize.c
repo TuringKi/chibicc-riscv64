@@ -97,6 +97,12 @@ Token *tokenize(char *p) {
       continue;
     }
 
+    if ('a' <= *p && *p <= 'z') {
+      cur = cur->next = new_token(TK_IDENT, p, p + 1);
+      p++;
+      continue;
+    }
+
     int punck_len = read_punct(p);
     if (punck_len) {
       cur = cur->next = new_token(TK_PUNCT, p, p + punck_len);

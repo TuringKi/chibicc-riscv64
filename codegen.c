@@ -14,6 +14,16 @@ static void pop(char *arg) {
   depth--;
 }
 
+static void gen_addr(Node *node) {
+  if (node->kind = ND_VAR) {
+    int offset = (node->name - 'a' + 1) * 8;
+    printf("\t\taddi a0, t2, -%d\n", offset);
+    return;
+  }
+
+  error("not an lvalue");
+}
+
 static void gen_expr(Node *node) {
 
   switch (node->kind) {
@@ -23,6 +33,17 @@ static void gen_expr(Node *node) {
     return;
   case ND_NUM:
     printf("\t\taddi a0, zero, %d\n", node->val);
+    return;
+  case ND_VAR:
+    gen_addr(node);
+    printf("\t\tld a0, 0(a0)\n");
+    return;
+  case ND_ASSIGN:
+    gen_addr(node->lhs);
+    push();
+    gen_expr(node->rhs);
+    pop("t0");
+    printf("\t\tsd a0, 0(t0)\n");
     return;
   }
 
@@ -84,10 +105,16 @@ void codegen(Node *node) {
   printf("\t.globl main\n");
   printf("main:\n");
 
+  printf("\t\tsd t2, 0(sp)\n");
+  printf("\t\taddi t2, sp, 0\n");
+  printf("\t\taddi sp, sp, -208\n");
+
   for (Node *n = node; n; n = n->next) {
     gen_stmt(n);
     assert(depth == 0);
   }
+  printf("\t\taddi sp, sp, 208\n");
+  printf("\t\tld t2, 0(sp)\n");
 
   printf("\t\tret\n");
 }
