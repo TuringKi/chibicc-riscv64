@@ -1,15 +1,35 @@
 #include "chibicc.h"
 
+Obj *locals;
+
 static Node *new_node(NodeKind kind) {
   Node *node = calloc(1, sizeof(Node));
   node->kind = kind;
   return node;
 }
 
-static Node *new_variable(char name) {
+static Obj *find_var(Token *tok) {
+  for (Obj *var = locals; var; var = var->next) {
+    if (strlen(var->name) == tok->len &&
+        !strncmp(tok->loc, var->name, tok->len)) {
+      return var;
+    }
+  }
+  return NULL;
+}
+
+static Node *new_variable(Obj *var) {
   Node *node = new_node(ND_VAR);
-  node->name = name;
+  node->var = var;
   return node;
+}
+
+static Obj *new_lvar(char *name) {
+  Obj *var = calloc(1, sizeof(Obj));
+  var->name = name;
+  var->next = locals;
+  locals = var;
+  return var;
 }
 
 static Node *new_unary(NodeKind kind, Node *expr) {
@@ -32,6 +52,7 @@ static Node *new_num(int val) {
   return node;
 }
 
+static Node *block_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
@@ -42,10 +63,40 @@ static Node *mul(Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
-static Node *stmt(Token **rest, Token *tok) { return expr_stmt(rest, tok); }
+static Node *stmt(Token **rest, Token *tok) {
+  if (equal(tok, "return")) {
+    Node *node = new_unary(ND_RETURN, expr(&tok, tok->next));
+    *rest = skip(tok, ";");
+    return node;
+  }
+
+  if (equal(tok, "{")) {
+    return block_stmt(rest, tok->next);
+  }
+
+  return expr_stmt(rest, tok);
+}
+
+static Node *block_stmt(Token **rest, Token *tok) {
+  Node head = {};
+  Node *cur = &head;
+
+  while (!equal(tok, "}")) {
+    cur = cur->next = stmt(&tok, tok);
+  }
+
+  Node *node = new_node(ND_BLOCK);
+  node->body = head.next;
+  *rest = tok->next;
+  return node;
+}
 
 // stmt = expr-stmt
 static Node *expr_stmt(Token **rest, Token *tok) {
+  if (equal(tok, ";")) {
+    *rest = tok->next;
+    return new_node(ND_BLOCK);
+  }
   Node *node = new_unary(ND_EXPR_STMT, expr(&tok, tok));
   *rest = skip(tok, ";");
   return node;
@@ -178,7 +229,11 @@ static Node *primary(Token **rest, Token *tok) {
   }
 
   if (tok->kind == TK_IDENT) {
-    Node *node = new_variable(*tok->loc);
+    Obj *var = find_var(tok);
+    if (!var) {
+      var = new_lvar(strndup(tok->loc, tok->len));
+    }
+    Node *node = new_variable(var);
     *rest = tok->next;
     return node;
   }
@@ -192,12 +247,13 @@ static Node *primary(Token **rest, Token *tok) {
   error_tok(tok, "expected an expression");
 }
 
-Node *parse(Token *tok) {
+Function *parse(Token *tok) {
+  tok = skip(tok, "{");
   Node head = {};
   Node *cur = &head;
 
-  while (tok->kind != TK_EOF) {
-    cur = cur->next = stmt(&tok, tok);
-  }
-  return head.next;
+  Function *prog = calloc(1, sizeof(Function));
+  prog->body = block_stmt(&tok, tok);
+  prog->locals = locals;
+  return prog;
 }

@@ -57,6 +57,12 @@ static bool startwith(char *p, char *q) {
   return strncmp(p, q, strlen(q)) == 0;
 }
 
+static bool is_ident1(char c) {
+  return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_';
+}
+
+static bool is_ident2(char c) { return is_ident1(c) || ('0' <= c && c <= '9'); }
+
 static int read_punct(char *p) {
   if (startwith(p, "==") || startwith(p, ">=") || startwith(p, "!=") ||
       startwith(p, "<=")) {
@@ -64,6 +70,14 @@ static int read_punct(char *p) {
   }
 
   return ispunct(*p) ? 1 : 0;
+}
+
+static int convert_keywords(Token *tok) {
+  for (Token *t = tok; t->kind != TK_EOF; t = t->next) {
+    if (equal(t, "return")) {
+      t->kind = TK_KEYWORD;
+    }
+  }
 }
 
 static Token *new_token(TokenKind kind, char *start, char *end) {
@@ -97,9 +111,12 @@ Token *tokenize(char *p) {
       continue;
     }
 
-    if ('a' <= *p && *p <= 'z') {
-      cur = cur->next = new_token(TK_IDENT, p, p + 1);
-      p++;
+    if (is_ident1(*p)) {
+      char *start = p;
+      do {
+        p++;
+      } while (is_ident2(*p));
+      cur = cur->next = new_token(TK_IDENT, start, p);
       continue;
     }
 
@@ -114,5 +131,6 @@ Token *tokenize(char *p) {
   }
 
   cur = cur->next = new_token(TK_EOF, p, p);
+  convert_keywords(head.next);
   return head.next;
 }

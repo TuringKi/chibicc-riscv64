@@ -14,10 +14,13 @@ static void pop(char *arg) {
   depth--;
 }
 
+static int align_to(int n, int align) {
+  return (n + align - 1) / align * align;
+}
+
 static void gen_addr(Node *node) {
   if (node->kind = ND_VAR) {
-    int offset = (node->name - 'a' + 1) * 8;
-    printf("\t\taddi a0, t2, -%d\n", offset);
+    printf("\t\taddi a0, t2, -%d\n", node->var->offset);
     return;
   }
 
@@ -92,7 +95,17 @@ static void gen_expr(Node *node) {
 }
 
 static void gen_stmt(Node *node) {
-  if (node->kind == ND_EXPR_STMT) {
+  switch (node->kind) {
+  case ND_BLOCK:
+    for (Node *n = node->body; n; n = n->next) {
+      gen_stmt(n);
+    }
+    return;
+  case ND_RETURN:
+    gen_expr(node->rhs);
+    printf("\t\tjal zero, .L.return\n");
+    return;
+  case ND_EXPR_STMT:
     gen_expr(node->rhs);
     return;
   }
@@ -100,20 +113,30 @@ static void gen_stmt(Node *node) {
   error("invalid statement");
 }
 
-void codegen(Node *node) {
+static void assign_lvar_offsets(Function *prog) {
+  int offset = 0;
+  for (Obj *var = prog->locals; var; var = var->next) {
+    offset += 8;
+    var->offset = -offset;
+  }
+  prog->stack_size = align_to(offset, 16);
+}
+
+void codegen(Function *prog) {
+
+  assign_lvar_offsets(prog);
 
   printf("\t.globl main\n");
   printf("main:\n");
 
   printf("\t\tsd t2, 0(sp)\n");
   printf("\t\taddi t2, sp, 0\n");
-  printf("\t\taddi sp, sp, -208\n");
+  printf("\t\taddi sp, sp, -%d\n", prog->stack_size);
 
-  for (Node *n = node; n; n = n->next) {
-    gen_stmt(n);
-    assert(depth == 0);
-  }
-  printf("\t\taddi sp, sp, 208\n");
+  gen_stmt(prog->body);
+
+  printf(".L.return:\n");
+  printf("\t\taddi sp, sp, %d\n", prog->stack_size);
   printf("\t\tld t2, 0(sp)\n");
 
   printf("\t\tret\n");

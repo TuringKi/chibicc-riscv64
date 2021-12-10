@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
@@ -9,6 +10,7 @@
 typedef enum {
   TK_IDENT,
   TK_PUNCT,
+  TK_KEYWORD,
   TK_NUM,
   TK_EOF,
 } TokenKind;
@@ -22,6 +24,13 @@ struct Token {
   int len;
 };
 
+typedef struct Obj Obj;
+struct Obj {
+  Obj *next;
+  char *name;
+  int offset;
+};
+
 typedef enum {
   ND_ADD,
   ND_SUB,
@@ -33,6 +42,8 @@ typedef enum {
   ND_LT,
   ND_LE,
   ND_ASSIGN,
+  ND_RETURN,
+  ND_BLOCK,
   ND_EXPR_STMT,
   ND_VAR,
   ND_NUM,
@@ -44,8 +55,16 @@ struct Node {
   Node *next;
   Node *lhs;
   Node *rhs;
-  char name;
+  Node *body;
+  Obj *var;
   int val;
+};
+
+typedef struct Function Function;
+struct Function {
+  Node *body;
+  Obj *locals;
+  int stack_size;
 };
 
 void error(char *fmt, ...);
@@ -57,5 +76,5 @@ bool equal(Token *tok, char *op);
 Token *skip(Token *tok, char *s);
 Token *tokenize(char *input);
 
-Node *parse(Token *tok);
-void codegen(Node *node);
+Function *parse(Token *tok);
+void codegen(Function *node);
