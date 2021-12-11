@@ -2,6 +2,8 @@
 
 static int depth;
 static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+static Function *cur_fn;
+
 static void gen_expr();
 
 static int count(void) {
@@ -11,7 +13,7 @@ static int count(void) {
 
 static void push(void) {
   printf("\t\taddi sp,sp,-8\n");
-  printf("\t\tsd a0, 0(sp)\n");
+  printf("\t\tsd s1, 0(sp)\n");
   depth++;
 }
 
@@ -28,7 +30,7 @@ static int align_to(int n, int align) {
 static void gen_addr(Node *node) {
   switch (node->kind) {
   case ND_VAR:
-    printf("\t\taddi a0, t2, -%d\n", node->var->offset);
+    printf("\t\taddi s1, fp, %d\n", node->var->offset);
     return;
   case ND_DEREF:
     gen_expr(node->rhs);
@@ -43,28 +45,28 @@ static void gen_expr(Node *node) {
   switch (node->kind) {
   case ND_NEG:
     gen_expr(node->rhs);
-    printf("\t\tsub a0, zero, a0\n");
+    printf("\t\tsub s1, zero, s1\n");
     return;
   case ND_NUM:
-    printf("\t\taddi a0, zero, %d\n", node->val);
+    printf("\t\taddi s1, zero, %d\n", node->val);
     return;
   case ND_DEREF:
     gen_expr(node->rhs);
-    printf("\t\tld a0, 0(a0)\n");
+    printf("\t\tld s1, 0(s1)\n");
     return;
   case ND_ADDR:
     gen_addr(node->rhs);
     return;
   case ND_VAR:
     gen_addr(node);
-    printf("\t\tld a0, 0(a0)\n");
+    printf("\t\tld s1, 0(s1)\n");
     return;
   case ND_ASSIGN:
     gen_addr(node->lhs);
     push();
     gen_expr(node->rhs);
     pop("t0");
-    printf("\t\tsd a0, 0(t0)\n");
+    printf("\t\tsd s1, 0(t0)\n");
     return;
   case ND_FUNCCAL: {
     int nargs = 0;
@@ -79,8 +81,9 @@ static void gen_expr(Node *node) {
       pop(argreg[i]);
     }
 
-    // printf("\t\taddi a0, zero, 0\n");
+    // printf("\t\taddi s1, zero, 0\n");
     printf("\t\tcall %s\n", node->funcname);
+    printf("\t\tadd s1, zero, a0\n");
     return;
   }
   }
@@ -92,37 +95,37 @@ static void gen_expr(Node *node) {
 
   switch (node->kind) {
   case ND_EQ:
-    printf("\t\tsub t1, t0, a0\n");
-    printf("\t\tsltiu a0, t1, 1\n");
+    printf("\t\tsub t1, t0, s1\n");
+    printf("\t\tsltiu s1, t1, 1\n");
     return;
   case ND_NE:
-    printf("\t\tsub t1, t0, a0\n");
-    printf("\t\tsltu a0, zero, t1\n");
+    printf("\t\tsub t1, t0, s1\n");
+    printf("\t\tsltu s1, zero, t1\n");
     return;
   case ND_LE:
-    printf("\t\tsub t1, a0, t0\n");
-    printf("\t\tslt a0, zero, t1\n");
-    printf("\t\txori a0, a0, 1\n");
-    printf("\t\tandi a0, a0, 0xff\n");
+    printf("\t\tsub t1, s1, t0\n");
+    printf("\t\tslt s1, zero, t1\n");
+    printf("\t\txori s1, s1, 1\n");
+    printf("\t\tandi s1, s1, 0xff\n");
     return;
   case ND_LT:
-    printf("\t\tsub t1, t0, a0\n");
-    printf("\t\tslt a0, zero, t1\n");
+    printf("\t\tsub t1, t0, s1\n");
+    printf("\t\tslt s1, zero, t1\n");
     return;
 
   case ND_ADD:
-    printf("\t\tadd a0, a0, t0\n");
+    printf("\t\tadd s1, s1, t0\n");
     return;
   case ND_SUB:
-    printf("\t\tsub a0, a0, t0\n");
+    printf("\t\tsub s1, s1, t0\n");
     return;
   case ND_MUL:
-    printf("\t\tadd t1, zero, a0\n");
-    printf("\t\tmulh a0, t1, t0\n");
-    printf("\t\tmul a0, t1, t0\n");
+    printf("\t\tadd t1, zero, s1\n");
+    printf("\t\tmulh s1, t1, t0\n");
+    printf("\t\tmul s1, t1, t0\n");
     return;
   case ND_DIV:
-    printf("\t\tdiv a0, a0, t0\n");
+    printf("\t\tdiv s1, s1, t0\n");
     return;
   }
 
@@ -134,7 +137,7 @@ static void gen_stmt(Node *node) {
   case ND_IF: {
     int c = count();
     gen_expr(node->cond);
-    printf("\t\tbeq zero, a0, .L.else.%d\n", c);
+    printf("\t\tbeq zero, s1, .L.else.%d\n", c);
     gen_stmt(node->then);
     printf("\t\tjal zero, .L.end.%d\n", c);
     printf(".L.else.%d:\n", c);
@@ -153,7 +156,7 @@ static void gen_stmt(Node *node) {
     printf(".L.begin.%d:\n", c);
     if (node->cond) {
       gen_expr(node->cond);
-      printf("\t\tbeq zero, a0, .L.end.%d\n", c);
+      printf("\t\tbeq zero, s1, .L.end.%d\n", c);
     }
     gen_stmt(node->then);
     if (node->inc) {
@@ -171,7 +174,7 @@ static void gen_stmt(Node *node) {
     return;
   case ND_RETURN:
     gen_expr(node->rhs);
-    printf("\t\tjal zero, .L.return\n");
+    printf("\t\tjal zero, .L.return.%s\n", cur_fn->name);
     return;
   case ND_EXPR_STMT:
     gen_expr(node->rhs);
@@ -182,30 +185,42 @@ static void gen_stmt(Node *node) {
 }
 
 static void assign_lvar_offsets(Function *prog) {
-  int offset = 0;
-  for (Obj *var = prog->locals; var; var = var->next) {
-    offset += 8;
-    var->offset = -offset;
+  for (Function *fn = prog; fn; fn = fn->next) {
+    int offset = 16; // 0~16:ra, fp
+    for (Obj *var = fn->locals; var; var = var->next) {
+      offset += 8;
+      var->offset = -offset;
+    }
+    fn->stack_size = align_to(offset, 16);
   }
-  prog->stack_size = align_to(offset, 16);
 }
 
 void codegen(Function *prog) {
 
   assign_lvar_offsets(prog);
+  for (Function *fn = prog; fn; fn = fn->next) {
+    printf("\t.globl %s\n", fn->name);
+    printf("%s:\n", fn->name);
+    cur_fn = fn;
 
-  printf("\t.globl main\n");
-  printf("main:\n");
+    printf("\t\tsd ra, -8(sp)\n");
+    printf("\t\tsd fp, -16(sp)\n");
+    printf("\t\taddi fp, sp, 0\n");
+    printf("\t\taddi sp, sp, -%d\n", fn->stack_size);
 
-  printf("\t\tsd ra, 0(sp)\n");
-  printf("\t\taddi t2, sp, 0\n");
-  printf("\t\taddi sp, sp, -%d\n", prog->stack_size);
+    int i = 0;
+    for (Obj *var = fn->params; var; var = var->next) {
+      printf("\t\tsd %s, %d(fp)\n", argreg[i++], (var->offset));
+    }
 
-  gen_stmt(prog->body);
+    gen_stmt(fn->body);
+    assert(depth == 0);
 
-  printf(".L.return:\n");
-  printf("\t\taddi sp, sp, %d\n", prog->stack_size);
-  printf("\t\tld ra, 0(sp)\n");
-
-  printf("\t\tjr ra\n");
+    printf(".L.return.%s:\n", fn->name);
+    printf("\t\tadd a0, zero, s1\n");
+    printf("\t\taddi sp, sp, %d\n", fn->stack_size);
+    printf("\t\tld ra, -8(sp)\n");
+    printf("\t\tld fp, -16(sp)\n");
+    printf("\t\tjr ra\n");
+  }
 }

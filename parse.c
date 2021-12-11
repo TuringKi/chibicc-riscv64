@@ -2,6 +2,7 @@
 
 Obj *locals;
 
+static Type *declarator(Token **rest, Token *tok, Type *ty);
 static Node *declaration(Token **rest, Token *tok);
 static Node *block_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
@@ -53,9 +54,42 @@ static char *get_ident(Token *tok) {
   return strndup(tok->loc, tok->len);
 }
 
+static void create_param_lvars(Type *param) {
+  if (param) {
+    create_param_lvars(param->next);
+    new_lvar(get_ident(param->name), param);
+  }
+}
+
 static Type *declspec(Token **rest, Token *tok) {
   *rest = skip(tok, "int");
   return ty_int;
+}
+
+static Type *type_suffix(Token **rest, Token *tok, Type *ty) {
+  if (equal(tok, "(")) {
+
+    tok = tok->next;
+
+    Type head = {};
+    Type *cur = &head;
+
+    while (!equal(tok, ")")) {
+      if (cur != &head) {
+        tok = skip(tok, ",");
+      }
+      Type *basety = declspec(&tok, tok);
+      Type *ty = declarator(&tok, tok, basety);
+      cur = cur->next = copy_type(ty);
+    }
+
+    ty = func_type(ty);
+    ty->params = head.next;
+    *rest = tok->next;
+    return ty;
+  }
+  *rest = tok;
+  return ty;
 }
 
 static Type *declarator(Token **rest, Token *tok, Type *ty) {
@@ -66,9 +100,8 @@ static Type *declarator(Token **rest, Token *tok, Type *ty) {
   if (tok->kind != TK_IDENT) {
     error_tok(tok, "expected a variable name");
   }
-
+  ty = type_suffix(rest, tok->next, ty);
   ty->name = tok;
-  *rest = tok->next;
   return ty;
 }
 
@@ -443,13 +476,31 @@ static Node *primary(Token **rest, Token *tok) {
   error_tok(tok, "expected an expression");
 }
 
-Function *parse(Token *tok) {
-  tok = skip(tok, "{");
-  Node head = {};
-  Node *cur = &head;
+static Function *function(Token **rest, Token *tok) {
+  Type *ty = declspec(&tok, tok);
+  ty = declarator(&tok, tok, ty);
 
-  Function *prog = calloc(1, sizeof(Function));
-  prog->body = block_stmt(&tok, tok);
-  prog->locals = locals;
-  return prog;
+  locals = NULL;
+
+  Function *fn = calloc(1, sizeof(Function));
+  fn->name = get_ident(ty->name);
+  create_param_lvars(ty->params);
+  fn->params = locals;
+
+  tok = skip(tok, "{");
+  fn->body = block_stmt(rest, tok);
+  fn->locals = locals;
+  return fn;
+}
+
+Function *parse(Token *tok) {
+
+  Function head = {};
+  Function *cur = &head;
+
+  while (tok->kind != TK_EOF) {
+    cur = cur->next = function(&tok, tok);
+  }
+
+  return head.next;
 }
