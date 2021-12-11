@@ -33,12 +33,14 @@ void error_tok(Token *tok, char *fmt, ...);
 
 bool equal(Token *tok, char *op);
 Token *skip(Token *tok, char *s);
+bool consume(Token **rest, Token *tok, char *str);
 Token *tokenize(char *input);
 
 typedef struct Obj Obj;
 struct Obj {
   Obj *next;
   char *name;
+  Type *ty;
   int offset;
 };
 
@@ -59,6 +61,7 @@ typedef enum {
   ND_IF,
   ND_FOR,
   ND_BLOCK,
+  ND_FUNCCAL,
   ND_EXPR_STMT,
   ND_VAR,
   ND_NUM,
@@ -84,6 +87,8 @@ struct Node {
 
   Obj *var;
   int val;
+  char *funcname;
+  Node *args;
 };
 
 typedef struct Function Function;
@@ -103,11 +108,13 @@ typedef enum {
 struct Type {
   TypeKind kind;
   Type *base;
+  Token *name;
 };
 
 extern Type *ty_int;
 
 bool is_integer(Type *ty);
+Type *pointer_to(Type *base);
 void add_type(Node *node);
 
 void codegen(Function *node);

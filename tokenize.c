@@ -39,6 +39,15 @@ bool equal(Token *tok, char *op) {
   return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
 }
 
+bool consume(Token **rest, Token *tok, char *str) {
+  if (equal(tok, str)) {
+    *rest = tok->next;
+    return true;
+  }
+  *rest = tok;
+  return false;
+}
+
 Token *skip(Token *tok, char *s) {
   if (!equal(tok, s)) {
     error_at(tok->loc, "expected '%s'", s);
@@ -73,7 +82,7 @@ static int read_punct(char *p) {
 }
 
 static bool is_keyword(Token *tok) {
-  static char *kw[] = {"return", "if", "else", "for", "while"};
+  static char *kw[] = {"return", "if", "else", "for", "while", "int"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {

@@ -1,7 +1,7 @@
 #include "chibicc.h"
 
 static int depth;
-
+static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
 static void gen_expr();
 
 static int count(void) {
@@ -66,6 +66,23 @@ static void gen_expr(Node *node) {
     pop("t0");
     printf("\t\tsd a0, 0(t0)\n");
     return;
+  case ND_FUNCCAL: {
+    int nargs = 0;
+
+    for (Node *arg = node->args; arg; arg = arg->next) {
+      gen_expr(arg);
+      push();
+      nargs++;
+    }
+
+    for (int i = nargs - 1; i >= 0; i--) {
+      pop(argreg[i]);
+    }
+
+    // printf("\t\taddi a0, zero, 0\n");
+    printf("\t\tcall %s\n", node->funcname);
+    return;
+  }
   }
 
   gen_expr(node->rhs);
@@ -180,7 +197,7 @@ void codegen(Function *prog) {
   printf("\t.globl main\n");
   printf("main:\n");
 
-  printf("\t\tsd t2, 0(sp)\n");
+  printf("\t\tsd ra, 0(sp)\n");
   printf("\t\taddi t2, sp, 0\n");
   printf("\t\taddi sp, sp, -%d\n", prog->stack_size);
 
@@ -188,7 +205,7 @@ void codegen(Function *prog) {
 
   printf(".L.return:\n");
   printf("\t\taddi sp, sp, %d\n", prog->stack_size);
-  printf("\t\tld t2, 0(sp)\n");
+  printf("\t\tld ra, 0(sp)\n");
 
-  printf("\t\tret\n");
+  printf("\t\tjr ra\n");
 }
