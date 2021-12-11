@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct Type Type;
+typedef struct Node Node;
 typedef enum {
   TK_IDENT,
   TK_PUNCT,
@@ -23,6 +25,15 @@ struct Token {
   char *loc;
   int len;
 };
+
+void error(char *fmt, ...);
+void verror_at(char *loc, char *fmt, va_list ap);
+void error_at(char *loc, char *fmt, ...);
+void error_tok(Token *tok, char *fmt, ...);
+
+bool equal(Token *tok, char *op);
+Token *skip(Token *tok, char *s);
+Token *tokenize(char *input);
 
 typedef struct Obj Obj;
 struct Obj {
@@ -42,6 +53,8 @@ typedef enum {
   ND_LT,
   ND_LE,
   ND_ASSIGN,
+  ND_ADDR,
+  ND_DEREF,
   ND_RETURN,
   ND_IF,
   ND_FOR,
@@ -51,10 +64,12 @@ typedef enum {
   ND_NUM,
 } NodeKind;
 
-typedef struct Node Node;
 struct Node {
   NodeKind kind;
   Node *next;
+  Type *ty;
+  Token *tok;
+
   Node *lhs;
   Node *rhs;
 
@@ -78,14 +93,21 @@ struct Function {
   int stack_size;
 };
 
-void error(char *fmt, ...);
-void verror_at(char *loc, char *fmt, va_list ap);
-void error_at(char *loc, char *fmt, ...);
-void error_tok(Token *tok, char *fmt, ...);
-
-bool equal(Token *tok, char *op);
-Token *skip(Token *tok, char *s);
-Token *tokenize(char *input);
-
 Function *parse(Token *tok);
+
+typedef enum {
+  TY_INT,
+  TY_PTR,
+} TypeKind;
+
+struct Type {
+  TypeKind kind;
+  Type *base;
+};
+
+extern Type *ty_int;
+
+bool is_integer(Type *ty);
+void add_type(Node *node);
+
 void codegen(Function *node);

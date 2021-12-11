@@ -2,6 +2,8 @@
 
 static int depth;
 
+static void gen_expr();
+
 static int count(void) {
   static int i = 1;
   return i++;
@@ -24,12 +26,16 @@ static int align_to(int n, int align) {
 }
 
 static void gen_addr(Node *node) {
-  if (node->kind = ND_VAR) {
+  switch (node->kind) {
+  case ND_VAR:
     printf("\t\taddi a0, t2, -%d\n", node->var->offset);
+    return;
+  case ND_DEREF:
+    gen_expr(node->rhs);
     return;
   }
 
-  error("not an lvalue");
+  error_tok(node->tok, "not an lvalue");
 }
 
 static void gen_expr(Node *node) {
@@ -41,6 +47,13 @@ static void gen_expr(Node *node) {
     return;
   case ND_NUM:
     printf("\t\taddi a0, zero, %d\n", node->val);
+    return;
+  case ND_DEREF:
+    gen_expr(node->rhs);
+    printf("\t\tld a0, 0(a0)\n");
+    return;
+  case ND_ADDR:
+    gen_addr(node->rhs);
     return;
   case ND_VAR:
     gen_addr(node);
@@ -96,7 +109,7 @@ static void gen_expr(Node *node) {
     return;
   }
 
-  error("invalid expression");
+  error_tok(node->tok, "invalid expression");
 }
 
 static void gen_stmt(Node *node) {
@@ -117,7 +130,9 @@ static void gen_stmt(Node *node) {
 
   case ND_FOR: {
     int c = count();
-    gen_stmt(node->init);
+    if (node->init) {
+      gen_stmt(node->init);
+    }
     printf(".L.begin.%d:\n", c);
     if (node->cond) {
       gen_expr(node->cond);
@@ -146,7 +161,7 @@ static void gen_stmt(Node *node) {
     return;
   }
 
-  error("invalid statement");
+  error_tok(node->tok, "invalid statement");
 }
 
 static void assign_lvar_offsets(Function *prog) {

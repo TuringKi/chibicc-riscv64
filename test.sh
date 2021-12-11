@@ -18,6 +18,15 @@ assert() {
         exit -1
     fi
 }
+
+assert 3 '{ x=3; return *&x; }'
+assert 3 '{ x=3; y=&x; z=&y; return **z; }'
+assert 5 '{ x=3; y=5; return *(&x-1); }'
+assert 3 '{ x=3; y=5; return *(&y+1); }'
+assert 5 '{ x=3; y=&x; *y=5; return x; }'
+assert 7 '{ x=3; y=5; *(&x-1)=7; return y; }'
+assert 7 '{ x=3; y=5; *(&y+1)=7; return x; }'
+assert 10 '{ i=0; while(i<10) { i=i+1; } return i; }'
 assert 55 '{ i=0; j=0; for (i=0; i<=10; i=i+1) j=i+j; return j; }'
 assert 3 '{ for (;;) {return 3;} return 5; }'
 
