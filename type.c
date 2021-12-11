@@ -4,10 +4,23 @@ Type *ty_int = &(Type){TY_INT};
 
 bool is_integer(Type *ty) { return ty->kind == TY_INT; }
 
+Type *copy_type(Type *ty) {
+  Type *ret = calloc(1, sizeof(Type));
+  *ret = *ty;
+  return ret;
+}
+
 Type *pointer_to(Type *base) {
   Type *ty = calloc(1, sizeof(Type));
   ty->kind = TY_PTR;
   ty->base = base;
+  return ty;
+}
+
+Type *func_type(Type *return_ty) {
+  Type *ty = calloc(1, sizeof(Type));
+  ty->kind = TY_FUNC;
+  ty->return_ty = return_ty;
   return ty;
 }
 
@@ -25,6 +38,9 @@ void add_type(Node *node) {
   add_type(node->inc);
 
   for (Node *n = node->body; n; n = n->next) {
+    add_type(n);
+  }
+  for (Node *n = node->args; n; n = n->next) {
     add_type(n);
   }
 
