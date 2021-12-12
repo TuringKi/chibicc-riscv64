@@ -23,6 +23,19 @@ static void pop(char *arg) {
   depth--;
 }
 
+static void load(Type *ty) {
+  if (ty->kind == TY_ARRAY) {
+    return;
+  }
+
+  printf("\t\tld s1, 0(s1)\n");
+}
+
+static void store(Type *ty) {
+  pop("t0");
+  printf("\t\tsd s1, 0(t0)\n");
+}
+
 static int align_to(int n, int align) {
   return (n + align - 1) / align * align;
 }
@@ -52,21 +65,20 @@ static void gen_expr(Node *node) {
     return;
   case ND_DEREF:
     gen_expr(node->rhs);
-    printf("\t\tld s1, 0(s1)\n");
+    load(node->ty);
     return;
   case ND_ADDR:
     gen_addr(node->rhs);
     return;
   case ND_VAR:
     gen_addr(node);
-    printf("\t\tld s1, 0(s1)\n");
+    load(node->ty);
     return;
   case ND_ASSIGN:
     gen_addr(node->lhs);
     push();
     gen_expr(node->rhs);
-    pop("t0");
-    printf("\t\tsd s1, 0(t0)\n");
+    store(node->ty);
     return;
   case ND_FUNCCAL: {
     int nargs = 0;
@@ -188,7 +200,7 @@ static void assign_lvar_offsets(Function *prog) {
   for (Function *fn = prog; fn; fn = fn->next) {
     int offset = 16; // 0~16:ra, fp
     for (Obj *var = fn->locals; var; var = var->next) {
-      offset += 8;
+      offset += var->ty->size;
       var->offset = -offset;
     }
     fn->stack_size = align_to(offset, 16);
