@@ -2,5 +2,7 @@
     "files.associations": {
         "cstdio": "cpp",
         "typeinfo": "c"
-    }
+    },
+    "editor.fontFamily": "MesloLGS NF",
+    "editor.fontSize": 18
 }

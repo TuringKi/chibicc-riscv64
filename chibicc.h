@@ -41,7 +41,13 @@ struct Obj {
   Obj *next;
   char *name;
   Type *ty;
+  bool is_local;
+  bool is_function;
   int offset;
+  Obj *params;
+  Node *body;
+  Obj *locals;
+  int stack_size;
 };
 
 typedef enum {
@@ -91,17 +97,7 @@ struct Node {
   Node *args;
 };
 
-typedef struct Function Function;
-struct Function {
-  Function *next;
-  char *name;
-  Obj *params;
-  Node *body;
-  Obj *locals;
-  int stack_size;
-};
-
-Function *parse(Token *tok);
+Obj *parse(Token *tok);
 
 typedef enum {
   TY_INT,
@@ -131,4 +127,4 @@ Type *copy_type(Type *ty);
 void add_type(Node *node);
 Type *array_of(Type *base, int size);
 Type *func_type(Type *return_ty);
-void codegen(Function *node);
+void codegen(Obj *node);
