@@ -23,17 +23,34 @@ static void pop(char *arg) {
   depth--;
 }
 
-static void load(Type *ty) {
+static void load(Node *node) {
+  Type *ty = node->ty;
   if (ty->kind == TY_ARRAY) {
     return;
   }
-
-  printf("\t\tld s1, 0(s1)\n");
+  if (!node->var) {
+    printf("\t\tld s1, 0(s1)\n");
+    return;
+  }
+  if (node->var->is_local) {
+    printf("\t\tld s1, 0(s1)\n");
+  } else {
+    printf("\t\tld s1, %%lo(%s)(s1)\n", node->var->name);
+  }
 }
 
-static void store(Type *ty) {
+static void store(Node *node) {
+  Type *ty = node->ty;
   pop("t0");
-  printf("\t\tsd s1, 0(t0)\n");
+  if (!node->var) {
+    printf("\t\tsd s1, 0(t0)\n");
+    return;
+  }
+  if (node->var->is_local) {
+    printf("\t\tsd s1, 0(t0)\n");
+  } else {
+    printf("\t\tsd s1, %%lo(%s)(t0)\n", node->var->name);
+  }
 }
 
 static int align_to(int n, int align) {
@@ -43,8 +60,14 @@ static int align_to(int n, int align) {
 static void gen_addr(Node *node) {
   switch (node->kind) {
   case ND_VAR:
-    printf("\t\taddi s1, fp, %d\n", node->var->offset);
-    return;
+    if (node->var->is_local) {
+      printf("\t\taddi s1, fp, %d\n", node->var->offset);
+      return;
+    } else {
+      printf("\t\tlui s1, %%hi(%s)\n", node->var->name);
+      return;
+    }
+
   case ND_DEREF:
     gen_expr(node->rhs);
     return;
@@ -65,20 +88,20 @@ static void gen_expr(Node *node) {
     return;
   case ND_DEREF:
     gen_expr(node->rhs);
-    load(node->ty);
+    load(node);
     return;
   case ND_ADDR:
     gen_addr(node->rhs);
     return;
   case ND_VAR:
     gen_addr(node);
-    load(node->ty);
+    load(node);
     return;
   case ND_ASSIGN:
     gen_addr(node->lhs);
     push();
     gen_expr(node->rhs);
-    store(node->ty);
+    store(node->lhs);
     return;
   case ND_FUNCCAL: {
     int nargs = 0;
@@ -210,15 +233,28 @@ static void assign_lvar_offsets(Obj *prog) {
   }
 }
 
-void codegen(Obj *prog) {
+static void emit_data(Obj *prog) {
 
-  assign_lvar_offsets(prog);
+  for (Obj *var = prog; var; var = var->next) {
+    if (var->is_function) {
+      continue;
+    }
+
+    printf(".data\n");
+    printf(".globl %s\n", var->name);
+    printf("%s:\n", var->name);
+    printf("\t\t.zero %d\n", var->ty->size);
+  }
+}
+
+void emit_text(Obj *prog) {
+
   for (Obj *fn = prog; fn; fn = fn->next) {
     if (!fn->is_function) {
       continue;
     }
-    printf("\t.globl %s\n", fn->name);
-    printf("\t.text\n");
+    printf(".globl %s\n", fn->name);
+    printf(".text\n");
     printf("%s:\n", fn->name);
     cur_fn = fn;
 
@@ -242,4 +278,10 @@ void codegen(Obj *prog) {
     printf("\t\tld fp, -16(sp)\n");
     printf("\t\tjr ra\n");
   }
+}
+
+void codegen(Obj *prog) {
+  assign_lvar_offsets(prog);
+  emit_data(prog);
+  emit_text(prog);
 }
