@@ -82,7 +82,8 @@ static int read_punct(char *p) {
 }
 
 static bool is_keyword(Token *tok) {
-  static char *kw[] = {"return", "if", "else", "for", "while", "int", "sizeof"};
+  static char *kw[] = {"return", "if",  "else",   "for",
+                       "while",  "int", "sizeof", "char"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {
@@ -111,6 +112,60 @@ static Token *new_token(TokenKind kind, char *start, char *end) {
   return tok;
 }
 
+static int read_escaped_char(char *p) {
+  switch (*p) {
+  case 'a':
+    return '\a';
+  case 'b':
+    return '\b';
+  case 't':
+    return '\t';
+  case 'n':
+    return '\n';
+  case 'v':
+    return '\v';
+  case 'f':
+    return '\f';
+  case 'r':
+    return '\r';
+  case 'e':
+    return 27;
+  default:
+    return *p;
+  }
+}
+
+static char *string_literal_end(char *p) {
+  char *start = p;
+  for (; *p != '"'; p++) {
+    if (*p == '\n' || *p == '\0') {
+      error_at(start, "unclosed string literal");
+    }
+    if (*p == '\\') {
+      p++;
+    }
+  }
+  return p;
+}
+
+static Token *read_string_literal(char *start) {
+  char *end = string_literal_end(start + 1);
+  char *buf = calloc(1, end - start);
+  int len = 0;
+  for (char *p = start + 1; p < end;) {
+    if (*p == '\\') {
+      buf[len++] = read_escaped_char(p + 1);
+      p += 2;
+    } else {
+      buf[len++] = *p++;
+    }
+  }
+  Token *tok = new_token(TK_STR, start, end + 1);
+  tok->ty = array_of(ty_char, len + 1);
+  tok->str = buf;
+  return tok;
+}
+
 // tokenize 函数将表达式解析为多个token。token的存储结构为链表。
 Token *tokenize(char *p) {
   current_input = p;
@@ -122,6 +177,13 @@ Token *tokenize(char *p) {
       p++;
       continue;
     }
+
+    if (*p == '"') {
+      cur = cur->next = read_string_literal(p);
+      p += cur->len;
+      continue;
+    }
+
     if (isdigit(*p)) {
       //注意下方的表达式要从右往左读，即先将返回的结果存储到next,然后再覆盖当前链表元素的指针值。
       cur = cur->next = new_token(TK_NUM, p, p);

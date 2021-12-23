@@ -1,7 +1,7 @@
 #include "chibicc.h"
 
 static int depth;
-static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5"};
 static Obj *cur_fn;
 
 static void gen_expr();
@@ -29,12 +29,24 @@ static void load(Node *node) {
     return;
   }
   if (!node->var) {
+    if (ty->size == 1) {
+      printf("\t\tlb s1, 0(s1)\n");
+      return;
+    }
     printf("\t\tld s1, 0(s1)\n");
     return;
   }
   if (node->var->is_local) {
+    if (ty->size == 1) {
+      printf("\t\tlb s1, 0(s1)\n");
+      return;
+    }
     printf("\t\tld s1, 0(s1)\n");
   } else {
+    if (ty->size == 1) {
+      printf("\t\tlb s1, %%lo(%s)(s1)\n", node->var->name);
+      return;
+    }
     printf("\t\tld s1, %%lo(%s)(s1)\n", node->var->name);
   }
 }
@@ -43,12 +55,24 @@ static void store(Node *node) {
   Type *ty = node->ty;
   pop("t0");
   if (!node->var) {
+    if (ty->size == 1) {
+      printf("\t\tsb s1, 0(t0)\n");
+      return;
+    }
     printf("\t\tsd s1, 0(t0)\n");
     return;
   }
   if (node->var->is_local) {
+    if (ty->size == 1) {
+      printf("\t\tsb s1, 0(t0)\n");
+      return;
+    }
     printf("\t\tsd s1, 0(t0)\n");
   } else {
+    if (ty->size == 1) {
+      printf("\t\tsb s1, %%lo(%s)(t0)\n", node->var->name);
+      return;
+    }
     printf("\t\tsd s1, %%lo(%s)(t0)\n", node->var->name);
   }
 }
@@ -243,7 +267,14 @@ static void emit_data(Obj *prog) {
     printf(".data\n");
     printf(".globl %s\n", var->name);
     printf("%s:\n", var->name);
-    printf("\t\t.zero %d\n", var->ty->size);
+
+    if (var->init_data) {
+      for (int i = 0; i < var->ty->size; i++) {
+        printf("\t\t.byte %d\n", var->init_data[i]);
+      }
+    } else {
+      printf("\t\t.zero %d\n", var->ty->size);
+    }
   }
 }
 
@@ -265,7 +296,11 @@ void emit_text(Obj *prog) {
 
     int i = 0;
     for (Obj *var = fn->params; var; var = var->next) {
-      printf("\t\tsd %s, %d(fp)\n", argreg[i++], (var->offset));
+      if (var->ty->size == 1) {
+        printf("\t\tsb %s, %d(fp)\n", argreg[i++], (var->offset));
+      } else {
+        printf("\t\tsd %s, %d(fp)\n", argreg[i++], (var->offset));
+      }
     }
 
     gen_stmt(fn->body);

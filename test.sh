@@ -31,6 +31,41 @@ assert() {
     fi
 }
 
+assert 7 'int main() { return "\a"[0]; }'
+assert 8 'int main() { return "\b"[0]; }'
+assert 9 'int main() { return "\t"[0]; }'
+assert 10 'int main() { return "\n"[0]; }'
+assert 11 'int main() { return "\v"[0]; }'
+assert 12 'int main() { return "\f"[0]; }'
+assert 13 'int main() { return "\r"[0]; }'
+assert 27 'int main() { return "\e"[0]; }'
+
+assert 106 'int main() { return "\j"[0]; }'
+assert 107 'int main() { return "\k"[0]; }'
+assert 108 'int main() { return "\l"[0]; }'
+
+assert 7 'int main() { return "\ax\ny"[0]; }'
+assert 120 'int main() { return "\ax\ny"[1]; }'
+assert 10 'int main() { return "\ax\ny"[2]; }'
+assert 121 'int main() { return "\ax\ny"[3]; }'
+
+assert 0 'int main() { return ""[0]; }'
+assert 1 'int main() { return sizeof(""); }'
+
+assert 97 'int main() { return "abc"[0]; }'
+assert 98 'int main() { return "abc"[1]; }'
+assert 99 'int main() { return "abc"[2]; }'
+assert 0 'int main() { return "abc"[3]; }'
+assert 4 'int main() { return sizeof("abc"); }'
+
+assert 1 'int main() { char x=1; return x; }'
+assert 1 'int main() { char x=1; char y=2; return x; }'
+assert 2 'int main() { char x=1; char y=2; return y; }'
+
+assert 1 'int main() { char x; return sizeof(x); }'
+assert 10 'int main() { char x[10]; return sizeof(x); }'
+assert 1 'int main() { return sub_char(7, 3, 3); } int sub_char(char a, char b, char c) { return a-b-c; }'
+
 
 assert 0 'int x; int main() { x = 0;return x; }'
 assert 3 'int x; int main() { x=3; return x; }'

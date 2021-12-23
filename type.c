@@ -1,8 +1,9 @@
 #include "chibicc.h"
 
 Type *ty_int = &(Type){TY_INT, 8};
+Type *ty_char = &(Type){TY_INT, 1};
 
-bool is_integer(Type *ty) { return ty->kind == TY_INT; }
+bool is_integer(Type *ty) { return ty->kind == TY_INT || ty->kind == TY_CHAR; }
 
 Type *copy_type(Type *ty) {
   Type *ret = calloc(1, sizeof(Type));

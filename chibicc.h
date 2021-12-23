@@ -9,11 +9,15 @@
 
 typedef struct Type Type;
 typedef struct Node Node;
+
+char *format(char *fmt, ...);
+
 typedef enum {
   TK_IDENT,
   TK_PUNCT,
   TK_KEYWORD,
   TK_NUM,
+  TK_STR,
   TK_EOF,
 } TokenKind;
 
@@ -23,6 +27,8 @@ struct Token {
   Token *next;
   int val;
   char *loc;
+  Type *ty;
+  char *str;
   int len;
 };
 
@@ -47,6 +53,7 @@ struct Obj {
   Obj *params;
   Node *body;
   Obj *locals;
+  char *init_data;
   int stack_size;
 };
 
@@ -100,6 +107,7 @@ struct Node {
 Obj *parse(Token *tok);
 
 typedef enum {
+  TY_CHAR,
   TY_INT,
   TY_PTR,
   TY_ARRAY,
@@ -120,6 +128,7 @@ struct Type {
 };
 
 extern Type *ty_int;
+extern Type *ty_char;
 
 bool is_integer(Type *ty);
 Type *pointer_to(Type *base);

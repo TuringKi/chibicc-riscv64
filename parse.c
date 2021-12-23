@@ -69,6 +69,19 @@ static Obj *new_gvar(char *name, Type *ty) {
   return var;
 }
 
+static char *new_unique_name() {
+  static int id = 0;
+  return format(".L..%d", id++);
+}
+
+static Obj *new_anon_gvar(Type *ty) { return new_gvar(new_unique_name(), ty); }
+
+static Obj *new_string_literal(char *p, Type *ty) {
+  Obj *var = new_anon_gvar(ty);
+  var->init_data = p;
+  return var;
+}
+
 static char *get_ident(Token *tok) {
   if (tok->kind != TK_IDENT) {
     error_tok(tok, "expected an identifier");
@@ -84,6 +97,12 @@ static void create_param_lvars(Type *param) {
 }
 
 static Type *declspec(Token **rest, Token *tok) {
+
+  if (equal(tok, "char")) {
+    *rest = tok->next;
+    return ty_char;
+  }
+
   *rest = skip(tok, "int");
   return ty_int;
 }
@@ -160,6 +179,10 @@ static Node *new_num(int val, Token *tok) {
   Node *node = new_node(ND_NUM, tok);
   node->val = val;
   return node;
+}
+
+static bool is_typename(Token *tok) {
+  return equal(tok, "char") || equal(tok, "int");
 }
 
 static Node *stmt(Token **rest, Token *tok) {
@@ -257,7 +280,7 @@ static Node *block_stmt(Token **rest, Token *tok) {
   Node *cur = &head;
 
   while (!equal(tok, "}")) {
-    if (equal(tok, "int")) {
+    if (is_typename(tok)) {
       cur = cur->next = declaration(&tok, tok);
     } else {
       cur = cur->next = stmt(&tok, tok);
@@ -506,6 +529,12 @@ static Node *primary(Token **rest, Token *tok) {
     Node *node = unary(rest, tok->next);
     add_type(node);
     return new_num(node->ty->size, tok);
+  }
+
+  if (tok->kind == TK_STR) {
+    Obj *var = new_string_literal(tok->str, tok->ty);
+    *rest = tok->next;
+    return new_variable(var, tok);
   }
 
   if (tok->kind == TK_IDENT) {
