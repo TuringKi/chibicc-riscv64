@@ -18,7 +18,7 @@ QEMU=qemu-riscv64
 assert() {
     expected="$1"
     input="$2"
-    $C "$input" > tmp.s || exit
+    echo "$input" | $C - > tmp.s || exit
     $GCC -static -o tmp tmp.s tmp2.o
     $QEMU ./tmp
     actual="$?"
@@ -30,6 +30,23 @@ assert() {
         exit -1
     fi
 }
+
+assert 0 'int main() { return ({ 0; }); }'
+assert 2 'int main() { return ({ 0; 1; 2; }); }'
+assert 1 'int main() { ({ 0; return 1; 2; }); return 3; }'
+assert 6 'int main() { return ({ 1; }) + ({ 2; }) + ({ 3; }); }'
+assert 3 'int main() { return ({ int x=3; x; }); }'
+
+assert 0 'int main() { return "\x00"[0]; }'
+assert 119 'int main() { return "\x77"[0]; }'
+assert 165 'int main() { return "\xA5"[0]; }'
+assert 255 'int main() { return "\x00ff"[0]; }'
+
+assert 0 'int main() { return "\0"[0]; }'
+assert 16 'int main() { return "\20"[0]; }'
+assert 65 'int main() { return "\101"[0]; }'
+assert 104 'int main() { return "\1500"[0]; }'
+
 
 assert 7 'int main() { return "\a"[0]; }'
 assert 8 'int main() { return "\b"[0]; }'

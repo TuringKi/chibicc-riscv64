@@ -1,7 +1,7 @@
 #include "chibicc.h"
 
 static char *current_input;
-
+static char *current_filename;
 void error(char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -11,10 +11,29 @@ void error(char *fmt, ...) {
 }
 
 void verror_at(char *loc, char *fmt, va_list ap) {
-  int pos = loc - current_input;
-  if (pos < 0) {
-    error("fatal error");
+
+  char *line = loc;
+  while (current_input < line && line[-1] != '\n') {
+    line--;
   }
+
+  char *end = loc;
+  while (*end != '\n') {
+    end++;
+  }
+
+  int line_no = 1;
+  for (char *p = current_input; p < line; p++) {
+    if (*p == '\n') {
+      line_no++;
+    }
+  }
+
+  int indent = fprintf(stderr, "%s:%d:", current_filename, line_no);
+  fprintf(stderr, "%.*s\n", (int)(end - line), line);
+
+  int pos = loc - line + indent;
+
   fprintf(stderr, "%s\n", current_input);
   fprintf(stderr, "%*s", pos, "");
   fprintf(stderr, "^ ");
@@ -112,7 +131,43 @@ static Token *new_token(TokenKind kind, char *start, char *end) {
   return tok;
 }
 
-static int read_escaped_char(char *p) {
+static int from_hex(char c) {
+  if ('0' <= c && c <= '9')
+    return c - '0';
+  if ('a' <= c && c <= 'f')
+    return c - 'a' + 10;
+  return c - 'A' + 10;
+}
+
+static int read_escaped_char(char **new_pos, char *p) {
+
+  if ('0' <= *p && *p <= '7') {
+    // Read an octal number.
+    int c = *p++ - '0';
+    if ('0' <= *p && *p <= '7') {
+      c = (c << 3) + (*p++ - '0');
+      if ('0' <= *p && *p <= '7')
+        c = (c << 3) + (*p++ - '0');
+    }
+    *new_pos = p;
+    return c;
+  }
+
+  if (*p == 'x') {
+    // Read a hexadecimal number.
+    p++;
+    if (!isxdigit(*p))
+      error_at(p, "invalid hex escape sequence");
+
+    int c = 0;
+    for (; isxdigit(*p); p++)
+      c = (c << 4) + from_hex(*p);
+    *new_pos = p;
+    return c;
+  }
+
+  *new_pos = p + 1;
+
   switch (*p) {
   case 'a':
     return '\a';
@@ -154,8 +209,7 @@ static Token *read_string_literal(char *start) {
   int len = 0;
   for (char *p = start + 1; p < end;) {
     if (*p == '\\') {
-      buf[len++] = read_escaped_char(p + 1);
-      p += 2;
+      buf[len++] = read_escaped_char(&p, p + 1);
     } else {
       buf[len++] = *p++;
     }
@@ -167,7 +221,8 @@ static Token *read_string_literal(char *start) {
 }
 
 // tokenize 函数将表达式解析为多个token。token的存储结构为链表。
-Token *tokenize(char *p) {
+Token *tokenize(char *filename, char *p) {
+  current_filename = filename;
   current_input = p;
   Token head = {};
   Token *cur = &head;
@@ -216,3 +271,43 @@ Token *tokenize(char *p) {
   convert_keywords(head.next);
   return head.next;
 }
+
+static char *read_file(char *path) {
+  FILE *fp;
+
+  if (strcmp(path, "-") == 0) {
+    fp = stdin;
+  } else {
+    fp = fopen(path, "r");
+    if (!fp) {
+      error("cannot open: %s:%s", path, strerror(errno));
+    }
+  }
+
+  char *buf;
+  size_t buflen;
+  FILE *out = open_memstream(&buf, &buflen);
+
+  for (;;) {
+    char buf2[4096];
+    int n = fread(buf2, 1, sizeof(buf2), fp);
+    if (n == 0) {
+      break;
+    }
+    fwrite(buf2, 1, n, out);
+  }
+
+  if (fp != stdin) {
+    fclose(fp);
+  }
+
+  fflush(out);
+  if (buflen == 0 || buf[buflen - 1] != '\n') {
+    fputc('\n', out);
+  }
+  fputc('\0', out);
+  fclose(out);
+  return buf;
+}
+
+Token *tokenize_file(char *path) { return tokenize(path, read_file(path)); }

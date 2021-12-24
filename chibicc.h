@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <ctype.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -40,7 +41,7 @@ void error_tok(Token *tok, char *fmt, ...);
 bool equal(Token *tok, char *op);
 Token *skip(Token *tok, char *s);
 bool consume(Token **rest, Token *tok, char *str);
-Token *tokenize(char *input);
+Token *tokenize_file(char *input);
 
 typedef struct Obj Obj;
 struct Obj {
@@ -76,6 +77,7 @@ typedef enum {
   ND_BLOCK,
   ND_FUNCCAL,
   ND_EXPR_STMT,
+  ND_STMT_EXPR,
   ND_VAR,
   ND_NUM,
 } NodeKind;
@@ -136,4 +138,4 @@ Type *copy_type(Type *ty);
 void add_type(Node *node);
 Type *array_of(Type *base, int size);
 Type *func_type(Type *return_ty);
-void codegen(Obj *node);
+void codegen(Obj *prog, FILE *out);

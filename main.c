@@ -1,18 +1,69 @@
 #include "chibicc.h"
 
-int main(int argc, char **argv) {
-  // stderr 是标准错误文件，它负责收集错误信息。一个经常使用到的方式为：./a.out
-  // 2>error.log 或者 ./a.out 2>/dev/null 其中 2
-  // 是标准错误输出的文件描述标号。前者将错误信息输出到error.log文件，后者将错误信息输出到
-  // /dev/null，这是 linux 操作系统的空设备，输出到此设备意味着什么也不输出。
-  if (argc != 2) {
-    fprintf(stderr, "%s, invalid number of arguments\n", argv[0]);
-  }
-  Token *tok = tokenize(argv[1]);
+static char *opt_o;
 
+static char *input_path;
+
+static void usage(char *binname, int status) {
+  fprintf(stderr, "%s [ -o <path> ] <file>\n", binname);
+  exit(status);
+}
+
+static void parse_args(int argc, char **argv) {
+  if (argc == 0) {
+    exit(-1);
+  }
+  char *binname = argv[0];
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "--help")) {
+      usage(binname, 0);
+    }
+
+    if (!strcmp(argv[i], "-o")) {
+      if (!argv[++i]) {
+        usage(binname, 1);
+      }
+      opt_o = argv[i];
+      continue;
+    }
+
+    if (!strncmp(argv[i], "-o", 2)) {
+      opt_o = argv[i] + 2;
+      continue;
+    }
+
+    if (argv[i][0] == '-' && argv[i][1] != '\0') {
+      error("unknown argument: %s", argv[i]);
+    }
+
+    input_path = argv[i];
+  }
+
+  if (!input_path) {
+    error("no input files");
+  }
+}
+
+static FILE *open_file(char *path) {
+  if (!path || strcmp(path, "-") == 0) {
+    return stdout;
+  }
+
+  FILE *out = fopen(path, "w");
+  if (!out) {
+    error("cannot open output: %s: %s", path, strerror(errno));
+  }
+  return out;
+}
+
+int main(int argc, char **argv) {
+  parse_args(argc, argv);
+
+  Token *tok = tokenize_file(input_path);
   Obj *prog = parse(tok);
 
-  codegen(prog);
+  FILE *outfile = open_file(opt_o);
+  codegen(prog, outfile);
 
   return 0;
 }
