@@ -81,6 +81,19 @@ int main() {
            j;
          }));
 
+  ASSERT(3, (1, 2, 3));
+  assert(5, ({
+           int i = 2, j = 3;
+           (i = 5, j) = 6;
+           i;
+         }),
+         "({ int i=2, j=3; (i=5,j)=6; i; })");
+  assert(6, ({
+           int i = 2, j = 3;
+           (i = 5, j) = 6;
+           j;
+         }),
+         "({ int i=2, j=3; (i=5,j)=6; j; })");
   printf("OK\n");
   return 0;
 }

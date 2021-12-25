@@ -63,7 +63,8 @@ int main(int argc, char **argv) {
   Obj *prog = parse(tok);
 
   FILE *outfile = open_file(opt_o);
-  codegen(prog, outfile);
+  fprintf(outfile, ".file 1 \"%s\"\n", input_path);
 
+  codegen(prog, outfile);
   return 0;
 }

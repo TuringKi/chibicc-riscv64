@@ -102,7 +102,14 @@ static void gen_addr(Node *node) {
       println("\t\taddi s1, s1, %%lo(%s)", node->var->name);
       return;
     }
-
+  case ND_MEMBER:
+    gen_addr(node->rhs);
+    println("\t\taddi s1, s1, %d", node->member->offset);
+    return;
+  case ND_COMMA:
+    gen_expr(node->lhs);
+    gen_addr(node->rhs);
+    return;
   case ND_DEREF:
     gen_expr(node->rhs);
     return;
@@ -112,6 +119,7 @@ static void gen_addr(Node *node) {
 }
 
 static void gen_expr(Node *node) {
+  println("\t\t.loc 1 %d", node->tok->line_no);
 
   switch (node->kind) {
   case ND_NEG:
@@ -121,6 +129,10 @@ static void gen_expr(Node *node) {
   case ND_NUM:
     println("\t\taddi s1, zero, %d", node->val);
     return;
+  case ND_COMMA:
+    gen_expr(node->lhs);
+    gen_expr(node->rhs);
+    return;
   case ND_DEREF:
     gen_expr(node->rhs);
     load(node);
@@ -129,6 +141,7 @@ static void gen_expr(Node *node) {
     gen_addr(node->rhs);
     return;
   case ND_VAR:
+  case ND_MEMBER:
     gen_addr(node);
     load(node);
     return;
@@ -208,6 +221,8 @@ static void gen_expr(Node *node) {
 }
 
 static void gen_stmt(Node *node) {
+  println("\t\t.loc 1 %d", node->tok->line_no);
+
   switch (node->kind) {
   case ND_IF: {
     int c = count();
@@ -222,7 +237,6 @@ static void gen_stmt(Node *node) {
     println(".L.end.%d:", c);
     return;
   }
-
   case ND_FOR: {
     int c = count();
     if (node->init) {

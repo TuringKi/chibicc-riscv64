@@ -3,6 +3,7 @@
         "cstdio": "cpp",
         "typeinfo": "c"
     },
+    "editor.formatOnSave": true,
     "editor.fontFamily": "MesloLGS NF",
     "editor.fontSize": 18
 }

@@ -10,7 +10,7 @@ void error(char *fmt, ...) {
   exit(-1);
 }
 
-void verror_at(char *loc, char *fmt, va_list ap) {
+void verror_at(int line_no, char *loc, char *fmt, va_list ap) {
 
   char *line = loc;
   while (current_input < line && line[-1] != '\n') {
@@ -22,36 +22,35 @@ void verror_at(char *loc, char *fmt, va_list ap) {
     end++;
   }
 
-  int line_no = 1;
-  for (char *p = current_input; p < line; p++) {
-    if (*p == '\n') {
-      line_no++;
-    }
-  }
-
   int indent = fprintf(stderr, "%s:%d:", current_filename, line_no);
   fprintf(stderr, "%.*s\n", (int)(end - line), line);
 
   int pos = loc - line + indent;
 
-  fprintf(stderr, "%s\n", current_input);
   fprintf(stderr, "%*s", pos, "");
   fprintf(stderr, "^ ");
-  fprintf(stderr, fmt, ap);
+  vfprintf(stderr, fmt, ap);
   fprintf(stderr, "\n");
   exit(-1);
 }
 
 void error_at(char *loc, char *fmt, ...) {
+  int line_no = 1;
+  for (char *p = current_input; p < loc; p++) {
+    if (*p == '\n') {
+      line_no++;
+    }
+  }
+
   va_list ap;
   va_start(ap, fmt);
-  verror_at(loc, fmt, ap);
+  verror_at(line_no, loc, fmt, ap);
 }
 
 void error_tok(Token *tok, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
-  verror_at(tok->loc, fmt, ap);
+  verror_at(tok->line_no, tok->loc, fmt, ap);
 }
 
 bool equal(Token *tok, char *op) {
@@ -69,7 +68,7 @@ bool consume(Token **rest, Token *tok, char *str) {
 
 Token *skip(Token *tok, char *s) {
   if (!equal(tok, s)) {
-    error_at(tok->loc, "expected '%s'", s);
+    error_tok(tok, "expected '%s'", s);
   }
   return tok->next;
 }
@@ -101,8 +100,8 @@ static int read_punct(char *p) {
 }
 
 static bool is_keyword(Token *tok) {
-  static char *kw[] = {"return", "if",  "else",   "for",
-                       "while",  "int", "sizeof", "char"};
+  static char *kw[] = {"return", "if",     "else", "for",   "while",
+                       "int",    "sizeof", "char", "struct"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {
@@ -220,6 +219,21 @@ static Token *read_string_literal(char *start) {
   return tok;
 }
 
+// Initialize line info for all tokens.
+static void add_line_numbers(Token *tok) {
+  char *p = current_input;
+  int n = 1;
+
+  do {
+    if (p == tok->loc) {
+      tok->line_no = n;
+      tok = tok->next;
+    }
+    if (*p == '\n')
+      n++;
+  } while (*p++);
+}
+
 // tokenize 函数将表达式解析为多个token。token的存储结构为链表。
 Token *tokenize(char *filename, char *p) {
   current_filename = filename;
@@ -286,6 +300,7 @@ Token *tokenize(char *filename, char *p) {
   }
 
   cur = cur->next = new_token(TK_EOF, p, p);
+  add_line_numbers(head.next);
   convert_keywords(head.next);
   return head.next;
 }

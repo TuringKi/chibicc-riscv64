@@ -10,6 +10,7 @@
 
 typedef struct Type Type;
 typedef struct Node Node;
+typedef struct Member Member;
 
 char *format(char *fmt, ...);
 
@@ -30,11 +31,12 @@ struct Token {
   char *loc;
   Type *ty;
   char *str;
+  int line_no; // Line number
   int len;
 };
 
 void error(char *fmt, ...);
-void verror_at(char *loc, char *fmt, va_list ap);
+void verror_at(int line_no, char *loc, char *fmt, va_list ap);
 void error_at(char *loc, char *fmt, ...);
 void error_tok(Token *tok, char *fmt, ...);
 
@@ -69,6 +71,8 @@ typedef enum {
   ND_LT,
   ND_LE,
   ND_ASSIGN,
+  ND_MEMBER,
+  ND_COMMA,
   ND_ADDR,
   ND_DEREF,
   ND_RETURN,
@@ -92,6 +96,7 @@ struct Node {
   Node *rhs;
 
   Node *body;
+  Member *member;
 
   Node *cond;
   Node *then;
@@ -112,6 +117,7 @@ typedef enum {
   TY_CHAR,
   TY_INT,
   TY_PTR,
+  TY_STRUCT,
   TY_ARRAY,
   TY_FUNC,
 } TypeKind;
@@ -123,10 +129,17 @@ struct Type {
   Token *name;
 
   int array_len;
-
+  Member *members;
   Type *return_ty;
   Type *params;
   Type *next;
+};
+
+struct Member {
+  Member *next;
+  Type *ty;
+  Token *name;
+  int offset;
 };
 
 extern Type *ty_int;
