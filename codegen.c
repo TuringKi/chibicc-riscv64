@@ -87,9 +87,7 @@ static void store(Node *node) {
   }
 }
 
-static int align_to(int n, int align) {
-  return (n + align - 1) / align * align;
-}
+int align_to(int n, int align) { return (n + align - 1) / align * align; }
 
 static void gen_addr(Node *node) {
   switch (node->kind) {
@@ -281,6 +279,7 @@ static void assign_lvar_offsets(Obj *prog) {
     int offset = 16; // 0~16:ra, fp
     for (Obj *var = fn->locals; var; var = var->next) {
       offset += var->ty->size;
+      offset = align_to(offset, var->ty->align);
       var->offset = -offset;
     }
     fn->stack_size = align_to(offset, 16);
