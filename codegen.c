@@ -99,6 +99,7 @@ static void gen_addr(Node *node) {
       return;
     } else {
       println("\t\tlui s1, %%hi(%s)", node->var->name);
+      println("\t\taddi s1, s1, %%lo(%s)", node->var->name);
       return;
     }
 

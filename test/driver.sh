@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 C=./riscv64-chibicc
 
 tmp=`mktemp -d /tmp/chibicc-test-XXXXXX`
@@ -21,7 +21,7 @@ $C -o $tmp/out $tmp/empty.c
 check -o
 
 # --help
-$C --help 2>&1 | grep -q chibicc
+$C --help 2>&1 | grep -q riscv64-chibicc
 check --help
 
 echo OK

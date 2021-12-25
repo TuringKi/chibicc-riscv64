@@ -1,7 +1,21 @@
 #include "chibicc.h"
 
+typedef struct VarScope VarScope;
+struct VarScope {
+  VarScope *next;
+  char *name;
+  Obj *var;
+};
+
+typedef struct Scope Scope;
+struct Scope {
+  Scope *next;
+  VarScope *vars;
+};
+
 static Obj *locals;
 static Obj *globals;
+static Scope *scope = &(Scope){};
 static Type *declarator(Token **rest, Token *tok, Type *ty);
 static Node *declaration(Token **rest, Token *tok);
 static Node *block_stmt(Token **rest, Token *tok);
@@ -23,18 +37,20 @@ static Node *new_node(NodeKind kind, Token *tok) {
   return node;
 }
 
-static Obj *find_var(Token *tok) {
-  for (Obj *var = locals; var; var = var->next) {
-    if (strlen(var->name) == tok->len &&
-        !strncmp(tok->loc, var->name, tok->len)) {
-      return var;
-    }
-  }
+static void enter_scope(void) {
+  Scope *sc = calloc(1, sizeof(Scope));
+  sc->next = scope;
+  scope = sc;
+}
 
-  for (Obj *var = globals; var; var = var->next) {
-    if (strlen(var->name) == tok->len &&
-        !strncmp(tok->loc, var->name, tok->len)) {
-      return var;
+static void leave_scope(void) { scope = scope->next; }
+
+static Obj *find_var(Token *tok) {
+  for (Scope *scp = scope; scp; scp = scp->next) {
+    for (VarScope *var = scp->vars; var; var = var->next) {
+      if (equal(tok, var->name)) {
+        return var->var;
+      }
     }
   }
 
@@ -47,10 +63,20 @@ static Node *new_variable(Obj *var, Token *tok) {
   return node;
 }
 
+static VarScope *push_scope(char *name, Obj *var) {
+  VarScope *sc = calloc(1, sizeof(VarScope));
+  sc->name = name;
+  sc->var = var;
+  sc->next = scope->vars;
+  scope->vars = sc;
+  return sc;
+}
+
 static Obj *new_var(char *name, Type *ty) {
   Obj *var = calloc(1, sizeof(Obj));
   var->name = name;
   var->ty = ty;
+  push_scope(name, var);
   return var;
 }
 
@@ -279,6 +305,8 @@ static Node *block_stmt(Token **rest, Token *tok) {
   Node head = {};
   Node *cur = &head;
 
+  enter_scope();
+
   while (!equal(tok, "}")) {
     if (is_typename(tok)) {
       cur = cur->next = declaration(&tok, tok);
@@ -288,6 +316,8 @@ static Node *block_stmt(Token **rest, Token *tok) {
 
     add_type(cur);
   }
+
+  leave_scope();
 
   node->body = head.next;
   *rest = tok->next;
@@ -578,13 +608,14 @@ static Token *function(Token *tok, Type *basety) {
 
   Obj *fn = new_gvar(get_ident(ty->name), ty);
   fn->is_function = true;
-
+  enter_scope();
   create_param_lvars(ty->params);
   fn->params = locals;
 
   tok = skip(tok, "{");
   fn->body = block_stmt(&tok, tok);
   fn->locals = locals;
+  leave_scope();
   return tok;
 }
 

@@ -1,5 +1,7 @@
 a.out
 **/*.s
 **/*.o
+/test/*.exe
+
 tmp
 riscv64-chibicc
