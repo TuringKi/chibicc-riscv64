@@ -116,6 +116,7 @@ struct Node {
   Node *args;
 };
 
+Node *new_cast(Node *expr, Type *ty);
 Obj *parse(Token *tok);
 
 typedef enum {

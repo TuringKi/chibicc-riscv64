@@ -33,13 +33,16 @@ static int getTypeId(Type *ty) {
 static char i32i8[] = "\t\tlb s1, 0(%s)";
 static char i32i16[] = "\t\tlh s1, 0(%s)";
 static char i32i64[] = "\t\tld s1, 0(%s)";
+static char i8i16[] = "\t\tlh s1, 0(%s)";
+static char i8i32[] = "\t\tlw s1, 0(%s)";
+static char i16i32[] = "\t\tlw s1, 0(%s)";
+static char i64i32[] = "\t\tlw s1, 0(%s)";
 static char *cast_table[][10] = {
     {NULL, NULL, NULL, i32i64},    // i8
     {i32i8, NULL, NULL, i32i64},   // i16
     {i32i8, i32i16, NULL, i32i64}, // i32
     {i32i8, i32i16, NULL, NULL},   // i64
 };
-
 static void cast(Type *from, Type *to, char *r) {
   if (to->kind == TY_VOID) {
     return;
@@ -229,7 +232,9 @@ static void gen_expr(Node *node) {
   case ND_CAST: {
     gen_expr(node->rhs);
     println("\t\taddi sp,sp,-8");
-    println("\t\tsw s1, 0(sp)");
+
+    println("\t\tsd s1, 0(sp)");
+
     cast(node->rhs->ty, node->ty, "sp");
     println("\t\taddi sp,sp,8");
   }
@@ -310,12 +315,10 @@ static void gen_expr(Node *node) {
     println("\t\tsub s1, s1, t0");
     return;
   case ND_MUL:
-    println("\t\tadd t1, zero, s1");
-    println("\t\tmulh s1, t1, t0");
-    println("\t\tmul s1, t1, t0");
+    println("\t\tmulw s1, s1, t0");
     return;
   case ND_DIV:
-    println("\t\tdiv s1, s1, t0");
+    println("\t\tdivw s1, s1, t0");
     return;
   }
 
