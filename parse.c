@@ -44,6 +44,7 @@ static Node *mul(Token **rest, Token *tok);
 static Type *struct_decl(Token **rest, Token *tok);
 static Type *union_decl(Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
+static Node *cast(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 static Node *postfix(Token **rest, Token *tok);
 static Token *parse_typedef(Token *tok, Type *basety);
@@ -112,6 +113,17 @@ static Obj *new_lvar(char *name, Type *ty) {
   var->next = locals;
   locals = var;
   return var;
+}
+
+static Node *new_cast(Node *expr, Type *ty) {
+  add_type(expr);
+
+  Node *node = calloc(1, sizeof(Node));
+  node->kind = ND_CAST;
+  node->tok = expr->tok;
+  node->rhs = expr;
+  node->ty = copy_type(ty);
+  return node;
 }
 
 static Obj *new_gvar(char *name, Type *ty) {
@@ -654,23 +666,36 @@ static Node *add(Token **rest, Token *tok) {
 
 static Node *mul(Token **rest, Token *tok) {
 
-  Node *node = unary(&tok, tok);
+  Node *node = cast(&tok, tok);
 
   for (;;) {
     Token *start = tok;
     if (equal(tok, "*")) {
-      node = new_binary(ND_MUL, node, unary(&tok, tok->next), start);
+      node = new_binary(ND_MUL, node, cast(&tok, tok->next), start);
       continue;
     }
 
     if (equal(tok, "/")) {
-      node = new_binary(ND_DIV, node, unary(&tok, tok->next), start);
+      node = new_binary(ND_DIV, node, cast(&tok, tok->next), start);
       continue;
     }
 
     *rest = tok;
     return node;
   }
+}
+
+static Node *cast(Token **rest, Token *tok) {
+  if (equal(tok, "(") && is_typename(tok->next)) {
+    Token *start = tok;
+    Type *ty = typename(&tok, tok->next);
+    tok = skip(tok, ")");
+    Node *node = new_cast(cast(rest, tok), ty);
+    node->tok = start;
+    return node;
+  }
+
+  return unary(rest, tok);
 }
 
 static void struct_members(Token **rest, Token *tok, Type *ty) {
@@ -813,19 +838,19 @@ static Node *postfix(Token **rest, Token *tok) {
 static Node *unary(Token **rest, Token *tok) {
 
   if (equal(tok, "+")) {
-    return unary(rest, tok->next);
+    return cast(rest, tok->next);
   }
 
   if (equal(tok, "-")) {
-    return new_unary(ND_NEG, unary(rest, tok->next), tok);
+    return new_unary(ND_NEG, cast(rest, tok->next), tok);
   }
 
   if (equal(tok, "&")) {
-    return new_unary(ND_ADDR, unary(rest, tok->next), tok);
+    return new_unary(ND_ADDR, cast(rest, tok->next), tok);
   }
 
   if (equal(tok, "*")) {
-    return new_unary(ND_DEREF, unary(rest, tok->next), tok);
+    return new_unary(ND_DEREF, cast(rest, tok->next), tok);
   }
 
   return postfix(rest, tok);
