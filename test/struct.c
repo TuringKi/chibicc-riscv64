@@ -331,6 +331,22 @@ int main() {
            sizeof(y);
          }));
 
+  ASSERT(16, ({
+           struct {
+             char a;
+             long b;
+           } x;
+           sizeof(x);
+         }));
+
+  ASSERT(4, ({
+           struct {
+             char a;
+             short b;
+           } x;
+           sizeof(x);
+         }));
+
   printf("OK\n");
   return 0;
 }

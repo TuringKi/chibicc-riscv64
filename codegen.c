@@ -43,6 +43,9 @@ static void load(Node *node) {
     if (ty->size == 1) {
       println("\t\tlb s1, 0(s1)");
       return;
+    } else if (ty->size == 2) {
+      println("\t\tlh s1, 0(s1)");
+      return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, 0(s1)");
       return;
@@ -54,6 +57,9 @@ static void load(Node *node) {
     if (ty->size == 1) {
       println("\t\tlb s1, 0(s1)");
       return;
+    } else if (ty->size == 2) {
+      println("\t\tlh s1, 0(s1)");
+      return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, 0(s1)");
       return;
@@ -62,6 +68,9 @@ static void load(Node *node) {
   } else {
     if (ty->size == 1) {
       println("\t\tlb s1, %%lo(%s)(s1)", node->var->name);
+      return;
+    } else if (ty->size == 2) {
+      println("\t\tlh s1, %%lo(%s)(s1)", node->var->name);
       return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, %%lo(%s)(s1)", node->var->name);
@@ -82,11 +91,14 @@ static void store(Node *lhs, Node *rhs) {
       if (member->ty->size == 1) {
         println("\t\tlb s1, %d(a7)", member->offset);
         println("\t\tsb s1, 0(t2)");
+      } else if (member->ty->size == 2) {
+        println("\t\tlh s1, %d(a7)", member->offset);
+        println("\t\tsh s1, 0(t2)");
       } else if (member->ty->size == 4) {
         println("\t\tlw s1, %d(a7)", member->offset);
         println("\t\tsw s1, 0(t2)");
       } else {
-        println("\t\tlb s1, %d(a7)", member->offset);
+        println("\t\tld s1, %d(a7)", member->offset);
         println("\t\tsd s1, 0(t2)");
       }
     }
@@ -97,6 +109,9 @@ static void store(Node *lhs, Node *rhs) {
   if (!lhs->var) {
     if (ty->size == 1) {
       println("\t\tsb s1, 0(t0)");
+      return;
+    } else if (ty->size == 2) {
+      println("\t\tsh s1, 0(t0)");
       return;
     } else if (ty->size == 4) {
       println("\t\tsw s1, 0(t0)");
@@ -109,6 +124,9 @@ static void store(Node *lhs, Node *rhs) {
     if (ty->size == 1) {
       println("\t\tsb s1, 0(t0)");
       return;
+    } else if (ty->size == 2) {
+      println("\t\tsh s1, 0(t0)");
+      return;
     } else if (ty->size == 4) {
       println("\t\tsw s1, 0(t0)");
       return;
@@ -117,6 +135,9 @@ static void store(Node *lhs, Node *rhs) {
   } else {
     if (ty->size == 1) {
       println("\t\tsb s1, %%lo(%s)(t0)", lhs->var->name);
+      return;
+    } else if (ty->size == 2) {
+      println("\t\tsh s1, %%lo(%s)(t0)", lhs->var->name);
       return;
     } else if (ty->size == 4) {
       println("\t\tsw s1, %%lo(%s)(t0)", lhs->var->name);
@@ -164,7 +185,7 @@ static void gen_expr(Node *node) {
     println("\t\tsub s1, zero, s1");
     return;
   case ND_NUM:
-    println("\t\taddi s1, zero, %d", node->val);
+    println("\t\taddi s1, zero, %ld", node->val);
     return;
   case ND_COMMA:
     gen_expr(node->lhs);
@@ -366,6 +387,8 @@ void emit_text(Obj *prog) {
     for (Obj *var = fn->params; var; var = var->next) {
       if (var->ty->size == 1) {
         println("\t\tsb %s, %d(fp)", argreg[i++], (var->offset));
+      } else if (var->ty->size == 2) {
+        println("\t\tsh %s, %d(fp)", argreg[i++], (var->offset));
       } else if (var->ty->size == 4) {
         println("\t\tsw %s, %d(fp)", argreg[i++], (var->offset));
       } else {

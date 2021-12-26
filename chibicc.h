@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,7 +28,7 @@ typedef struct Token Token;
 struct Token {
   TokenKind kind;
   Token *next;
-  int val;
+  int64_t val;
   char *loc;
   Type *ty;
   char *str;
@@ -108,7 +109,7 @@ struct Node {
   Node *inc;
 
   Obj *var;
-  int val;
+  int64_t val;
   char *funcname;
   Node *args;
 };
@@ -118,6 +119,8 @@ Obj *parse(Token *tok);
 typedef enum {
   TY_CHAR,
   TY_INT,
+  TY_SHORT,
+  TY_LONG,
   TY_PTR,
   TY_STRUCT,
   TY_ARRAY,
@@ -147,7 +150,9 @@ struct Member {
 };
 
 extern Type *ty_int;
+extern Type *ty_short;
 extern Type *ty_char;
+extern Type *ty_long;
 
 bool is_integer(Type *ty);
 Type *pointer_to(Type *base);
