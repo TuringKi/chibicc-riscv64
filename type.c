@@ -1,5 +1,6 @@
 #include "chibicc.h"
 
+Type *ty_void = &(Type){TY_VOID, 1, 1};
 Type *ty_int = &(Type){TY_INT, 4, 4};
 Type *ty_long = &(Type){TY_INT, 8, 8};
 Type *ty_short = &(Type){TY_SHORT, 2, 2};
@@ -109,6 +110,10 @@ void add_type(Node *node) {
     if (!node->rhs->ty->base) {
       error_tok(node->tok, "invalid pointer dereference");
     }
+    if (node->rhs->ty->base->kind == TY_VOID) {
+      error_tok(node->tok, "dereferencing a void pointer");
+    }
+
     node->ty = node->rhs->ty->base;
     return;
   case ND_STMT_EXPR:

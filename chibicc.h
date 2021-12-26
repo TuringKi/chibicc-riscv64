@@ -54,6 +54,7 @@ struct Obj {
   char *name;
   Type *ty;
   bool is_local;
+  bool is_definition;
   bool is_function;
   int offset;
   Obj *params;
@@ -117,6 +118,7 @@ struct Node {
 Obj *parse(Token *tok);
 
 typedef enum {
+  TY_VOID,
   TY_CHAR,
   TY_INT,
   TY_SHORT,
@@ -148,7 +150,7 @@ struct Member {
   Token *name;
   int offset;
 };
-
+extern Type *ty_void;
 extern Type *ty_int;
 extern Type *ty_short;
 extern Type *ty_char;
