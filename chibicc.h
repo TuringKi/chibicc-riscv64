@@ -45,6 +45,8 @@ Token *skip(Token *tok, char *s);
 bool consume(Token **rest, Token *tok, char *str);
 Token *tokenize_file(char *input);
 
+#define unreachable() error("internal error at %s:%d", __FILE__, __LINE__)
+
 typedef struct Obj Obj;
 struct Obj {
   Obj *next;
@@ -120,6 +122,7 @@ typedef enum {
   TY_STRUCT,
   TY_ARRAY,
   TY_FUNC,
+  TY_UNION,
 } TypeKind;
 
 struct Type {

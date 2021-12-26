@@ -91,17 +91,20 @@ static bool is_ident1(char c) {
 static bool is_ident2(char c) { return is_ident1(c) || ('0' <= c && c <= '9'); }
 
 static int read_punct(char *p) {
-  if (startwith(p, "==") || startwith(p, ">=") || startwith(p, "!=") ||
-      startwith(p, "<=")) {
-    return 2;
+  static char *kw[] = {"==", "!=", "<=", ">=", "->"};
+
+  for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
+    if (startwith(p, kw[i])) {
+      return strlen(kw[i]);
+    }
   }
 
   return ispunct(*p) ? 1 : 0;
 }
 
 static bool is_keyword(Token *tok) {
-  static char *kw[] = {"return", "if",     "else", "for",   "while",
-                       "int",    "sizeof", "char", "struct"};
+  static char *kw[] = {"return", "if",     "else", "for",    "while",
+                       "int",    "sizeof", "char", "struct", "union"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {

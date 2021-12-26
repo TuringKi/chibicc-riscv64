@@ -7,6 +7,7 @@ static Obj *cur_fn;
 
 static void gen_expr();
 static void gen_stmt();
+static void gen_addr(Node *node);
 
 static void println(char *fmt, ...) {
   va_list ap;
@@ -35,12 +36,15 @@ static void pop(char *arg) {
 
 static void load(Node *node) {
   Type *ty = node->ty;
-  if (ty->kind == TY_ARRAY) {
+  if (ty->kind == TY_ARRAY || ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
     return;
   }
   if (!node->var) {
     if (ty->size == 1) {
       println("\t\tlb s1, 0(s1)");
+      return;
+    } else if (ty->size == 4) {
+      println("\t\tlw s1, 0(s1)");
       return;
     }
     println("\t\tld s1, 0(s1)");
@@ -49,6 +53,9 @@ static void load(Node *node) {
   if (node->var->is_local) {
     if (ty->size == 1) {
       println("\t\tlb s1, 0(s1)");
+      return;
+    } else if (ty->size == 4) {
+      println("\t\tlw s1, 0(s1)");
       return;
     }
     println("\t\tld s1, 0(s1)");
@@ -56,34 +63,66 @@ static void load(Node *node) {
     if (ty->size == 1) {
       println("\t\tlb s1, %%lo(%s)(s1)", node->var->name);
       return;
+    } else if (ty->size == 4) {
+      println("\t\tlw s1, %%lo(%s)(s1)", node->var->name);
+      return;
     }
     println("\t\tld s1, %%lo(%s)(s1)", node->var->name);
   }
 }
 
-static void store(Node *node) {
-  Type *ty = node->ty;
+static void store(Node *lhs, Node *rhs) {
+  Type *ty = lhs->ty;
   pop("t0");
-  if (!node->var) {
+
+  if (ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
+    println("\t\tadd a7, zero, s1");
+    for (Member *member = ty->members; member; member = member->next) {
+      println("\t\taddi t2, t0, %d", member->offset);
+      if (member->ty->size == 1) {
+        println("\t\tlb s1, %d(a7)", member->offset);
+        println("\t\tsb s1, 0(t2)");
+      } else if (member->ty->size == 4) {
+        println("\t\tlw s1, %d(a7)", member->offset);
+        println("\t\tsw s1, 0(t2)");
+      } else {
+        println("\t\tlb s1, %d(a7)", member->offset);
+        println("\t\tsd s1, 0(t2)");
+      }
+    }
+    println("\t\tadd s1, zero, a7");
+    return;
+  }
+
+  if (!lhs->var) {
     if (ty->size == 1) {
       println("\t\tsb s1, 0(t0)");
+      return;
+    } else if (ty->size == 4) {
+      println("\t\tsw s1, 0(t0)");
       return;
     }
     println("\t\tsd s1, 0(t0)");
     return;
   }
-  if (node->var->is_local) {
+  if (lhs->var->is_local) {
     if (ty->size == 1) {
       println("\t\tsb s1, 0(t0)");
+      return;
+    } else if (ty->size == 4) {
+      println("\t\tsw s1, 0(t0)");
       return;
     }
     println("\t\tsd s1, 0(t0)");
   } else {
     if (ty->size == 1) {
-      println("\t\tsb s1, %%lo(%s)(t0)", node->var->name);
+      println("\t\tsb s1, %%lo(%s)(t0)", lhs->var->name);
+      return;
+    } else if (ty->size == 4) {
+      println("\t\tsw s1, %%lo(%s)(t0)", lhs->var->name);
       return;
     }
-    println("\t\tsd s1, %%lo(%s)(t0)", node->var->name);
+    println("\t\tsd s1, %%lo(%s)(t0)", lhs->var->name);
   }
 }
 
@@ -147,7 +186,7 @@ static void gen_expr(Node *node) {
     gen_addr(node->lhs);
     push();
     gen_expr(node->rhs);
-    store(node->lhs);
+    store(node->lhs, node->rhs);
     return;
   case ND_STMT_EXPR:
     for (Node *n = node->body; n; n = n->next) {
@@ -327,6 +366,8 @@ void emit_text(Obj *prog) {
     for (Obj *var = fn->params; var; var = var->next) {
       if (var->ty->size == 1) {
         println("\t\tsb %s, %d(fp)", argreg[i++], (var->offset));
+      } else if (var->ty->size == 4) {
+        println("\t\tsw %s, %d(fp)", argreg[i++], (var->offset));
       } else {
         println("\t\tsd %s, %d(fp)", argreg[i++], (var->offset));
       }
