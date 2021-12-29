@@ -1,6 +1,6 @@
 CFLAGS=-std=c11 -g -fno-common
 GCC=riscv64-unknown-linux-gnu-gcc
-QEMU=qemu-riscv64
+QEMU=/data/usr/bin/qemu-riscv64
 
 SRCS=$(wildcard *.c)
 OBJS=$(SRCS:.c=.o)
@@ -21,7 +21,7 @@ test/%.exe: riscv64-chibicc test/%.c
 	$(GCC) -o $@ test/$*.s -xc test/common
 
 test: $(TESTS)
-	for i in $^; do echo $$i; qemu-riscv64 -L /home/mx/usr/sysroot/ ./$$i || exit 1; echo; done
+	for i in $^; do echo $$i; qemu-riscv64 -L /data/usr/sysroot/ ./$$i || exit 1; echo; done
 	test/driver.sh
 
 clean:
