@@ -5,5 +5,9 @@
     },
     "editor.formatOnSave": true,
     "editor.fontFamily": "MesloLGS NF",
-    "editor.fontSize": 18
+    "editor.fontSize": 18,
+    "files.exclude": {
+        "**/*.o": true,
+        "**/*.exe":true
+    }
 }

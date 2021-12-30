@@ -30,13 +30,12 @@ static int getTypeId(Type *ty) {
   }
   return I64;
 }
+
+static void cmp_zero(Type *ty) { println("\t\tsnez s1, s1"); }
+
 static char i32i8[] = "\t\tlb s1, 0(%s)";
 static char i32i16[] = "\t\tlh s1, 0(%s)";
 static char i32i64[] = "\t\tld s1, 0(%s)";
-static char i8i16[] = "\t\tlh s1, 0(%s)";
-static char i8i32[] = "\t\tlw s1, 0(%s)";
-static char i16i32[] = "\t\tlw s1, 0(%s)";
-static char i64i32[] = "\t\tlw s1, 0(%s)";
 static char *cast_table[][10] = {
     {NULL, NULL, NULL, i32i64},    // i8
     {i32i8, NULL, NULL, i32i64},   // i16
@@ -47,7 +46,10 @@ static void cast(Type *from, Type *to, char *r) {
   if (to->kind == TY_VOID) {
     return;
   }
-
+  if (to->kind == TY_BOOL) {
+    cmp_zero(from);
+    return;
+  }
   int t1 = getTypeId(from);
   int t2 = getTypeId(to);
   if (cast_table[t1][t2]) {

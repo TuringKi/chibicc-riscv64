@@ -104,9 +104,9 @@ static int read_punct(char *p) {
 }
 
 static bool is_keyword(Token *tok) {
-  static char *kw[] = {"return", "if",     "else", "for",    "while",
-                       "int",    "sizeof", "char", "struct", "union",
-                       "short",  "long",   "void", "typedef"};
+  static char *kw[] = {"return", "if",      "else",   "for",   "while", "int",
+                       "sizeof", "char",    "struct", "union", "short", "long",
+                       "void",   "typedef", "_Bool",  "enum"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {
@@ -207,6 +207,30 @@ static char *string_literal_end(char *p) {
   return p;
 }
 
+static Token *read_char_literal(char *start) {
+  char *p = start + 1;
+  if (*p == '\0') {
+    error_at(start, "unclosed char literal");
+  }
+
+  char c;
+  if (*p == '\\') {
+    c = read_escaped_char(&p, p + 1);
+
+  } else {
+    c = *p++;
+  }
+
+  char *end = strchr(p, '\'');
+  if (!end) {
+    error_at(p, "unclosed char literal");
+  }
+
+  Token *tok = new_token(TK_NUM, start, end + 1);
+  tok->val = c;
+  return tok;
+}
+
 static Token *read_string_literal(char *start) {
   char *end = string_literal_end(start + 1);
   char *buf = calloc(1, end - start);
@@ -276,6 +300,11 @@ Token *tokenize(char *filename, char *p) {
       continue;
     }
 
+    if (*p == '\'') {
+      cur = cur->next = read_char_literal(p);
+      p += cur->len;
+      continue;
+    }
     if (isdigit(*p)) {
       //注意下方的表达式要从右往左读，即先将返回的结果存储到next,然后再覆盖当前链表元素的指针值。
       cur = cur->next = new_token(TK_NUM, p, p);

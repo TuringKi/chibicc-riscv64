@@ -112,6 +112,7 @@ struct Node {
 
   Obj *var;
   int64_t val;
+  Type *func_ty;
   char *funcname;
   Node *args;
 };
@@ -120,6 +121,7 @@ Node *new_cast(Node *expr, Type *ty);
 Obj *parse(Token *tok);
 
 typedef enum {
+  TY_BOOL,
   TY_VOID,
   TY_CHAR,
   TY_INT,
@@ -127,6 +129,7 @@ typedef enum {
   TY_LONG,
   TY_PTR,
   TY_STRUCT,
+  TY_ENUM,
   TY_ARRAY,
   TY_FUNC,
   TY_UNION,
@@ -153,6 +156,7 @@ struct Member {
   int offset;
 };
 extern Type *ty_void;
+extern Type *ty_bool;
 extern Type *ty_int;
 extern Type *ty_short;
 extern Type *ty_char;
@@ -164,5 +168,6 @@ Type *copy_type(Type *ty);
 void add_type(Node *node);
 Type *array_of(Type *base, int size);
 Type *func_type(Type *return_ty);
+Type *enum_type(void);
 void codegen(Obj *prog, FILE *out);
 int align_to(int n, int align);
