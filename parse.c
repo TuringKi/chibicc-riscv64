@@ -26,6 +26,7 @@ struct Scope {
 
 typedef struct {
   bool is_typedef;
+  bool is_static;
 } VarAttr;
 
 static Obj *current_fn;
@@ -40,6 +41,8 @@ static Node *declaration(Token **rest, Token *tok, Type *basety);
 static Node *block_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
+static Node *new_add(Node *lhs, Node *rhs, Token *tok);
+static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
 static Node *assign(Token **rest, Token *tok);
 static Node *equality(Token **rest, Token *tok);
@@ -205,13 +208,19 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr) {
 
   while (is_typename(tok)) {
 
-    if (equal(tok, "typedef")) {
+    if (equal(tok, "typedef") || equal(tok, "static")) {
       if (!attr) {
         error_tok(tok,
                   "storage class specifier is not allowed in this context");
       }
-
-      attr->is_typedef = true;
+      if (equal(tok, "typedef")) {
+        attr->is_typedef = true;
+      } else {
+        attr->is_static = true;
+      }
+      if (attr->is_typedef + attr->is_static > 1) {
+        error_tok(tok, "typedef and static may not be used together");
+      }
       tok = tok->next;
       continue;
     }
@@ -373,8 +382,8 @@ static Node *new_num(int64_t val, Token *tok) {
 }
 
 static bool is_typename(Token *tok) {
-  static char *kw[] = {"void",   "char",  "short",   "int",   "long",
-                       "struct", "union", "typedef", "_Bool", "enum"};
+  static char *kw[] = {"void",  "char",    "short", "int",  "long",  "struct",
+                       "union", "typedef", "_Bool", "enum", "static"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {
@@ -466,7 +475,13 @@ static Node *stmt(Token **rest, Token *tok) {
     Node *node = new_node(ND_FOR, tok);
     tok = skip(tok->next, "(");
 
-    node->init = expr_stmt(&tok, tok);
+    enter_scope();
+    if (is_typename(tok)) {
+      Type *basety = declspec(&tok, tok, NULL);
+      node->init = declaration(&tok, tok, basety);
+    } else {
+      node->init = expr_stmt(&tok, tok);
+    }
 
     if (!equal(tok, ";")) {
       node->cond = expr(&tok, tok);
@@ -480,6 +495,7 @@ static Node *stmt(Token **rest, Token *tok) {
     tok = skip(tok, ")");
 
     node->then = stmt(rest, tok);
+    leave_scope();
     return node;
   }
 
@@ -609,12 +625,49 @@ static Node *expr(Token **rest, Token *tok) {
   return node;
 }
 
+// Convert `A op= B` to `tmp = &A, *tmp = *tmp op B`
+// where tmp is a fresh pointer variable.
+static Node *to_assign(Node *binary) {
+  add_type(binary->lhs);
+  add_type(binary->rhs);
+  Token *tok = binary->tok;
+
+  Obj *var = new_lvar("", pointer_to(binary->lhs->ty));
+
+  Node *expr1 = new_binary(ND_ASSIGN, new_variable(var, tok),
+                           new_unary(ND_ADDR, binary->lhs, tok), tok);
+
+  Node *expr2 = new_binary(
+      ND_ASSIGN, new_unary(ND_DEREF, new_variable(var, tok), tok),
+      new_binary(binary->kind, new_unary(ND_DEREF, new_variable(var, tok), tok),
+                 binary->rhs, tok),
+      tok);
+
+  return new_binary(ND_COMMA, expr1, expr2, tok);
+}
+
 static Node *assign(Token **rest, Token *tok) {
   Node *node = equality(&tok, tok);
 
   if (equal(tok, "=")) {
     return new_binary(ND_ASSIGN, node, assign(rest, tok->next), tok);
   }
+  if (equal(tok, "+=")) {
+    return to_assign(new_add(node, assign(rest, tok->next), tok));
+  }
+
+  if (equal(tok, "-=")) {
+    return to_assign(new_sub(node, assign(rest, tok->next), tok));
+  }
+
+  if (equal(tok, "*=")) {
+    return to_assign(new_binary(ND_MUL, node, assign(rest, tok->next), tok));
+  }
+
+  if (equal(tok, "/=")) {
+    return to_assign(new_binary(ND_DIV, node, assign(rest, tok->next), tok));
+  }
+
   *rest = tok;
   return node;
 }
@@ -880,6 +933,13 @@ static Node *struct_ref(Node *lhs, Token *tok) {
   return node;
 }
 
+static Node *new_inc_dec(Node *node, Token *tok, int addend) {
+  add_type(node);
+  return new_cast(new_add(to_assign(new_add(node, new_num(addend, tok), tok)),
+                          new_num(-addend, tok), tok),
+                  node->ty);
+}
+
 static Node *postfix(Token **rest, Token *tok) {
 
   Node *node = primary(&tok, tok);
@@ -904,7 +964,17 @@ static Node *postfix(Token **rest, Token *tok) {
       tok = tok->next->next;
       continue;
     }
+    if (equal(tok, "++")) {
+      node = new_inc_dec(node, tok, 1);
+      tok = tok->next;
+      continue;
+    }
 
+    if (equal(tok, "--")) {
+      node = new_inc_dec(node, tok, -1);
+      tok = tok->next;
+      continue;
+    }
     *rest = tok;
     return node;
   }
@@ -927,7 +997,13 @@ static Node *unary(Token **rest, Token *tok) {
   if (equal(tok, "*")) {
     return new_unary(ND_DEREF, cast(rest, tok->next), tok);
   }
+  if (equal(tok, "++")) {
+    return to_assign(new_add(unary(rest, tok->next), new_num(1, tok), tok));
+  }
 
+  if (equal(tok, "--")) {
+    return to_assign(new_sub(unary(rest, tok->next), new_num(1, tok), tok));
+  }
   return postfix(rest, tok);
 }
 
@@ -1058,7 +1134,7 @@ static Token *parse_typedef(Token *tok, Type *basety) {
   return tok;
 }
 
-static Token *function(Token *tok, Type *basety) {
+static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   Type *ty = declarator(&tok, tok, basety);
 
   locals = NULL;
@@ -1066,7 +1142,7 @@ static Token *function(Token *tok, Type *basety) {
   Obj *fn = new_gvar(get_ident(ty->name), ty);
   fn->is_function = true;
   fn->is_definition = !consume(&tok, tok, ";");
-
+  fn->is_static = attr->is_static;
   if (!fn->is_definition) {
     return tok;
   }
@@ -1119,7 +1195,7 @@ Obj *parse(Token *tok) {
       continue;
     }
     if (is_function(tok)) {
-      tok = function(tok, basety);
+      tok = function(tok, basety, &attr);
       continue;
     }
 

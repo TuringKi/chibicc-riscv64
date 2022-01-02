@@ -56,6 +56,7 @@ struct Obj {
   bool is_local;
   bool is_definition;
   bool is_function;
+  bool is_static;
   int offset;
   Obj *params;
   Node *body;
