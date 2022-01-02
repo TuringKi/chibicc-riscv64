@@ -2,6 +2,9 @@
 
 static char *current_input;
 static char *current_filename;
+
+static Token *new_token(TokenKind kind, char *start, char *end);
+
 void error(char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -93,7 +96,8 @@ static bool is_ident2(char c) { return is_ident1(c) || ('0' <= c && c <= '9'); }
 
 static int read_punct(char *p) {
   static char *kw[] = {
-      "==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "++", "--",
+      "==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=",
+      "++", "--", "%=", "&=", "|=", "^=", "&&", "||",
   };
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
@@ -116,6 +120,30 @@ static bool is_keyword(Token *tok) {
     }
   }
   return false;
+}
+
+static Token *read_int_literal(char *start) {
+  char *p = start;
+
+  int base = 10;
+  if (!strncasecmp(p, "0x", 2) && isalnum(p[2])) {
+    p += 2;
+    base = 16;
+  } else if (!strncasecmp(p, "0b", 2) && isalnum(p[2])) {
+    p += 2;
+    base = 2;
+  } else if (*p == '0') {
+    base = 8;
+  }
+
+  long val = strtoul(p, &p, base);
+  if (isalnum(*p)) {
+    error_at(p, "invalid digit");
+  }
+
+  Token *tok = new_token(TK_NUM, start, p);
+  tok->val = val;
+  return tok;
 }
 
 static int convert_keywords(Token *tok) {
@@ -308,11 +336,8 @@ Token *tokenize(char *filename, char *p) {
       continue;
     }
     if (isdigit(*p)) {
-      //注意下方的表达式要从右往左读，即先将返回的结果存储到next,然后再覆盖当前链表元素的指针值。
-      cur = cur->next = new_token(TK_NUM, p, p);
-      char *q = p;
-      cur->val = strtol(p, &p, 10);
-      cur->len = p - q;
+      cur = cur->next = read_int_literal(p);
+      p += cur->len;
       continue;
     }
 

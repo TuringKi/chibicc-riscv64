@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 typedef struct Type Type;
 typedef struct Node Node;
@@ -72,6 +73,14 @@ typedef enum {
   ND_DIV,
   ND_NEG,
   ND_EQ,
+  ND_NOT,
+  ND_BITNOT,
+  ND_BITAND,
+  ND_BITOR,
+  ND_BITXOR,
+  ND_LOGAND,
+  ND_LOGOR,
+  ND_MOD,
   ND_NE,
   ND_LT,
   ND_LE,

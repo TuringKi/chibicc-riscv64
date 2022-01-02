@@ -240,7 +240,42 @@ static void gen_expr(Node *node) {
     cast(node->rhs->ty, node->ty, "sp");
     println("\t\taddi sp,sp,8");
   }
+    return;
 
+  case ND_LOGAND: {
+    int c = count();
+    gen_expr(node->lhs);
+    println("\t\tbeqz s1, .L.false.%d", c);
+    gen_expr(node->rhs);
+    println("\t\tbeqz s1, .L.false.%d", c);
+    println("\t\taddi s1,zero, 1");
+    println("\t\tj .L.end.%d", c);
+    println(".L.false.%d:", c);
+    println("\t\taddi s1,zero, 0");
+    println(".L.end.%d:", c);
+    return;
+  }
+  case ND_LOGOR: {
+    int c = count();
+    gen_expr(node->lhs);
+    println("\t\tbnez s1, .L.true.%d", c);
+    gen_expr(node->rhs);
+    println("\t\tbnez s1, .L.true.%d", c);
+    println("\t\taddi s1,zero, 0");
+    println("\t\tj .L.end.%d", c);
+    println(".L.true.%d:", c);
+    println("\t\taddi s1,zero, 1");
+    println(".L.end.%d:", c);
+    return;
+  }
+
+  case ND_NOT:
+    gen_expr(node->rhs);
+    println("\t\tseqz s1, s1");
+    return;
+  case ND_BITNOT:
+    gen_expr(node->rhs);
+    println("\t\nnot s1, s1");
     return;
   case ND_DEREF:
     gen_expr(node->rhs);
@@ -305,11 +340,26 @@ static void gen_expr(Node *node) {
     println("\t\txori s1, s1, 1");
     println("\t\tandi s1, s1, 0xff");
     return;
+  case ND_MOD:
+    if (node->lhs->ty->size == 8) {
+      println("\t\trem s1, s1, t0");
+    } else {
+      println("\t\tremw s1, s1, t0");
+    }
+    return;
+  case ND_BITAND:
+    println("\t\tand s1, s1, t0");
+    return;
+  case ND_BITOR:
+    println("\t\tor s1, s1, t0");
+    return;
+  case ND_BITXOR:
+    println("\t\txor s1, s1, t0");
+    return;
   case ND_LT:
     println("\t\tsub t1, t0, s1");
     println("\t\tslt s1, zero, t1");
     return;
-
   case ND_ADD:
     println("\t\tadd s1, s1, t0");
     return;

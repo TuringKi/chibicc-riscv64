@@ -34,6 +34,7 @@ static Obj *locals;
 static Obj *globals;
 static Scope *scope = &(Scope){};
 static bool is_typename(Token *tok);
+static Type *type_suffix(Token **rest, Token *tok, Type *ty);
 static Type *declspec(Token **rest, Token *tok, VarAttr *attr);
 static Type *enum_specifier(Token **rest, Token *tok);
 static Type *declarator(Token **rest, Token *tok, Type *ty);
@@ -41,6 +42,11 @@ static Node *declaration(Token **rest, Token *tok, Type *basety);
 static Node *block_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
+static Node * bitor (Token * *rest, Token *tok);
+static Node *bitxor(Token **rest, Token *tok);
+static Node *bitand(Token **rest, Token *tok);
+static Node *logor(Token **rest, Token *tok);
+static Node *logand(Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
@@ -323,16 +329,26 @@ static long get_number(Token *tok) {
   return tok->val;
 }
 
+// array-dimensions = num? "]" type-suffix
+static Type *array_dimensions(Token **rest, Token *tok, Type *ty) {
+  if (equal(tok, "]")) {
+    ty = type_suffix(rest, tok->next, ty);
+    return array_of(ty, -1);
+  }
+
+  int sz = get_number(tok);
+  tok = skip(tok->next, "]");
+  ty = type_suffix(rest, tok, ty);
+  return array_of(ty, sz);
+}
+
 static Type *type_suffix(Token **rest, Token *tok, Type *ty) {
   if (equal(tok, "(")) {
     return func_param(rest, tok->next, ty);
   }
 
   if (equal(tok, "[")) {
-    int sz = get_number(tok->next);
-    tok = skip(tok->next->next, "]");
-    ty = type_suffix(rest, tok, ty);
-    return array_of(ty, sz);
+    return array_dimensions(rest, tok->next, ty);
   }
 
   *rest = tok;
@@ -550,6 +566,10 @@ static Node *declaration(Token **rest, Token *tok, Type *basety) {
     }
 
     Type *ty = declarator(&tok, tok, basety); // variable or variable of pointer
+    if (ty->size < 0) {
+      error_tok(tok, "variable has incomplete type");
+    }
+
     if (ty->kind == TY_VOID) {
       error_tok(tok, "variable declared void");
     }
@@ -647,7 +667,7 @@ static Node *to_assign(Node *binary) {
 }
 
 static Node *assign(Token **rest, Token *tok) {
-  Node *node = equality(&tok, tok);
+  Node *node = logor(&tok, tok);
 
   if (equal(tok, "=")) {
     return new_binary(ND_ASSIGN, node, assign(rest, tok->next), tok);
@@ -667,7 +687,76 @@ static Node *assign(Token **rest, Token *tok) {
   if (equal(tok, "/=")) {
     return to_assign(new_binary(ND_DIV, node, assign(rest, tok->next), tok));
   }
+  if (equal(tok, "%=")) {
+    return to_assign(new_binary(ND_MOD, node, assign(rest, tok->next), tok));
+  }
+  if (equal(tok, "&=")) {
+    return to_assign(new_binary(ND_BITAND, node, assign(rest, tok->next), tok));
+  }
 
+  if (equal(tok, "|=")) {
+    return to_assign(new_binary(ND_BITOR, node, assign(rest, tok->next), tok));
+  }
+
+  if (equal(tok, "^=")) {
+    return to_assign(new_binary(ND_BITXOR, node, assign(rest, tok->next), tok));
+  }
+
+  *rest = tok;
+  return node;
+}
+
+// logor = logand ("||" logand)*
+static Node *logor(Token **rest, Token *tok) {
+  Node *node = logand(&tok, tok);
+  while (equal(tok, "||")) {
+    Token *start = tok;
+    node = new_binary(ND_LOGOR, node, logand(&tok, tok->next), start);
+  }
+  *rest = tok;
+  return node;
+}
+
+// logand = bitor ("&&" bitor)*
+static Node *logand(Token **rest, Token *tok) {
+  Node *node = bitor (&tok, tok);
+  while (equal(tok, "&&")) {
+    Token *start = tok;
+    node = new_binary(ND_LOGAND, node, bitor (&tok, tok->next), start);
+  }
+  *rest = tok;
+  return node;
+}
+
+// bitor = bitxor ("|" bitxor)*
+static Node * bitor (Token * *rest, Token *tok) {
+  Node *node = bitxor(&tok, tok);
+  while (equal(tok, "|")) {
+    Token *start = tok;
+    node = new_binary(ND_BITOR, node, bitxor(&tok, tok->next), start);
+  }
+  *rest = tok;
+  return node;
+}
+
+// bitxor = bitand ("^" bitand)*
+static Node *bitxor(Token **rest, Token *tok) {
+  Node *node = bitand(&tok, tok);
+  while (equal(tok, "^")) {
+    Token *start = tok;
+    node = new_binary(ND_BITXOR, node, bitand(&tok, tok->next), start);
+  }
+  *rest = tok;
+  return node;
+}
+
+// bitand = equality ("&" equality)*
+static Node *bitand(Token **rest, Token *tok) {
+  Node *node = equality(&tok, tok);
+  while (equal(tok, "&")) {
+    Token *start = tok;
+    node = new_binary(ND_BITAND, node, equality(&tok, tok->next), start);
+  }
   *rest = tok;
   return node;
 }
@@ -805,6 +894,10 @@ static Node *mul(Token **rest, Token *tok) {
 
     if (equal(tok, "/")) {
       node = new_binary(ND_DIV, node, cast(&tok, tok->next), start);
+      continue;
+    }
+    if (equal(tok, "%")) {
+      node = new_binary(ND_MOD, node, cast(&tok, tok->next), start);
       continue;
     }
 
@@ -992,6 +1085,12 @@ static Node *unary(Token **rest, Token *tok) {
 
   if (equal(tok, "&")) {
     return new_unary(ND_ADDR, cast(rest, tok->next), tok);
+  }
+  if (equal(tok, "!")) {
+    return new_unary(ND_NOT, cast(rest, tok->next), tok);
+  }
+  if (equal(tok, "~")) {
+    return new_unary(ND_BITNOT, cast(rest, tok->next), tok);
   }
 
   if (equal(tok, "*")) {
