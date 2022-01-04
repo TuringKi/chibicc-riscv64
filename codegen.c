@@ -402,17 +402,23 @@ static void gen_stmt(Node *node) {
     println(".L.begin.%d:", c);
     if (node->cond) {
       gen_expr(node->cond);
-      println("\t\tbeq zero, s1, .L.end.%d", c);
+      println("\t\tbeq zero, s1, %s", node->brk_label);
     }
     gen_stmt(node->then);
     if (node->inc) {
       gen_expr(node->inc);
     }
     println("\t\tjal zero, .L.begin.%d", c);
-    println(".L.end.%d:", c);
+    println("%s:", node->brk_label);
     return;
   }
-
+  case ND_GOTO:
+    println("\t\tj %s", node->unique_label);
+    return;
+  case ND_LABEL:
+    println("%s:", node->unique_label);
+    gen_stmt(node->lhs);
+    return;
   case ND_BLOCK:
     for (Node *n = node->body; n; n = n->next) {
       gen_stmt(n);

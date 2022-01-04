@@ -93,6 +93,8 @@ typedef enum {
   ND_IF,
   ND_FOR,
   ND_BLOCK,
+  ND_GOTO,
+  ND_LABEL,
   ND_FUNCCAL,
   ND_EXPR_STMT,
   ND_STMT_EXPR,
@@ -119,6 +121,11 @@ struct Node {
 
   Node *init;
   Node *inc;
+  char *brk_label;
+
+  char *label;
+  char *unique_label;
+  Node *goto_next;
 
   Obj *var;
   int64_t val;
@@ -175,6 +182,7 @@ extern Type *ty_long;
 bool is_integer(Type *ty);
 Type *pointer_to(Type *base);
 Type *copy_type(Type *ty);
+Type *struct_type(void);
 void add_type(Node *node);
 Type *array_of(Type *base, int size);
 Type *func_type(Type *return_ty);

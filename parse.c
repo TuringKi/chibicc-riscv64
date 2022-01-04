@@ -32,6 +32,10 @@ typedef struct {
 static Obj *current_fn;
 static Obj *locals;
 static Obj *globals;
+static Node *gotos;
+static Node *labels;
+static char *brk_label;
+
 static Scope *scope = &(Scope){};
 static bool is_typename(Token *tok);
 static Type *type_suffix(Token **rest, Token *tok, Type *ty);
@@ -311,9 +315,16 @@ static Type *func_param(Token **rest, Token *tok, Type *ty) {
     if (cur != &head) {
       tok = skip(tok, ",");
     }
-    Type *basety = declspec(&tok, tok, NULL);
-    Type *ty = declarator(&tok, tok, basety);
-    cur = cur->next = copy_type(ty);
+    Type *ty2 = declspec(&tok, tok, NULL);
+    ty2 = declarator(&tok, tok, ty2);
+
+    if (ty2->kind == TY_ARRAY) {
+      Token *name = ty2->name;
+      ty2 = pointer_to(ty2->base);
+      ty2->name = name;
+    }
+
+    cur = cur->next = copy_type(ty2);
   }
 
   ty = func_type(ty);
@@ -490,6 +501,8 @@ static Node *stmt(Token **rest, Token *tok) {
   if (equal(tok, "for")) {
     Node *node = new_node(ND_FOR, tok);
     tok = skip(tok->next, "(");
+    char *brk = brk_label;
+    brk_label = node->brk_label = new_unique_name();
 
     enter_scope();
     if (is_typename(tok)) {
@@ -512,6 +525,8 @@ static Node *stmt(Token **rest, Token *tok) {
 
     node->then = stmt(rest, tok);
     leave_scope();
+    brk_label = brk;
+
     return node;
   }
 
@@ -520,7 +535,41 @@ static Node *stmt(Token **rest, Token *tok) {
     tok = skip(tok->next, "(");
     node->cond = expr(&tok, tok);
     tok = skip(tok, ")");
+    char *brk = brk_label;
+    brk_label = node->brk_label = new_unique_name();
+
     node->then = stmt(rest, tok);
+    brk_label = brk;
+
+    return node;
+  }
+
+  if (equal(tok, "goto")) {
+    Node *node = new_node(ND_GOTO, tok);
+    node->label = get_ident(tok->next);
+    node->goto_next = gotos;
+    gotos = node;
+    *rest = skip(tok->next->next, ";");
+    return node;
+  }
+
+  if (equal(tok, "break")) {
+    if (!brk_label) {
+      error_tok(tok, "stray break");
+    }
+    Node *node = new_node(ND_GOTO, tok);
+    node->unique_label = brk_label;
+    *rest = skip(tok->next, ";");
+    return node;
+  }
+
+  if (tok->kind == TK_IDENT && equal(tok->next, ":")) {
+    Node *node = new_node(ND_LABEL, tok);
+    node->label = strndup(tok->loc, tok->len);
+    node->unique_label = new_unique_name();
+    node->lhs = stmt(rest, tok->next->next);
+    node->goto_next = labels;
+    labels = node;
     return node;
   }
 
@@ -599,7 +648,7 @@ static Node *block_stmt(Token **rest, Token *tok) {
   enter_scope();
 
   while (!equal(tok, "}")) {
-    if (is_typename(tok)) {
+    if (is_typename(tok) && !equal(tok->next, ":")) {
       VarAttr attr = {};
       Type *basety = declspec(&tok, tok, &attr);
 
@@ -950,20 +999,34 @@ static Type *struct_union_decl(Token **rest, Token *tok) {
   }
 
   if (tag && !equal(tok, "{")) {
-    Type *ty = find_tag(tag);
-    if (!ty)
-      error_tok(tag, "unknown struct type");
     *rest = tok;
+
+    Type *ty = find_tag(tag);
+    if (ty) {
+      return ty;
+    }
+
+    ty = struct_type();
+    ty->size = -1;
+    push_tag_scope(tag, ty);
     return ty;
   }
 
-  // Construct a struct object.
-  Type *ty = calloc(1, sizeof(Type));
-  ty->kind = TY_STRUCT;
-  struct_members(rest, tok->next, ty);
-  ty->align = 1;
+  tok = skip(tok, "{");
+
+  Type *ty = struct_type();
+  struct_members(rest, tok, ty);
 
   if (tag) {
+    // If this is a redefinition, overwrite a previous type.
+    // Otherwise, register the struct type.
+    for (TagScope *sc = scope->tags; sc; sc = sc->next) {
+      if (equal(tag, sc->name)) {
+        *sc->ty = *ty;
+        return sc->ty;
+      }
+    }
+
     push_tag_scope(tag, ty);
   }
   return ty;
@@ -972,6 +1035,9 @@ static Type *struct_union_decl(Token **rest, Token *tok) {
 static Type *struct_decl(Token **rest, Token *tok) {
   Type *ty = struct_union_decl(rest, tok);
   ty->kind = TY_STRUCT;
+  if (ty->size < 0) {
+    return ty;
+  }
   // Assign offsets within the struct to members.
   int offset = 0;
   for (Member *mem = ty->members; mem; mem = mem->next) {
@@ -991,7 +1057,9 @@ static Type *struct_decl(Token **rest, Token *tok) {
 static Type *union_decl(Token **rest, Token *tok) {
   Type *ty = struct_union_decl(rest, tok);
   ty->kind = TY_UNION;
-
+  if (ty->size < 0) {
+    return ty;
+  }
   // If union, we don't have to assign offsets because they
   // are already initialized to zero. We need to compute the
   // alignment and the size though.
@@ -1233,6 +1301,22 @@ static Token *parse_typedef(Token *tok, Type *basety) {
   return tok;
 }
 
+static void resolve_goto_labels(void) {
+  for (Node *x = gotos; x; x = x->goto_next) {
+    for (Node *y = labels; y; y = y->goto_next) {
+      if (!strcmp(x->label, y->label)) {
+        x->unique_label = y->unique_label;
+        break;
+      }
+    }
+
+    if (x->unique_label == NULL)
+      error_tok(x->tok->next, "use of undeclared label");
+  }
+
+  gotos = labels = NULL;
+}
+
 static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   Type *ty = declarator(&tok, tok, basety);
 
@@ -1254,6 +1338,7 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   fn->body = block_stmt(&tok, tok);
   fn->locals = locals;
   leave_scope();
+  resolve_goto_labels();
   return tok;
 }
 

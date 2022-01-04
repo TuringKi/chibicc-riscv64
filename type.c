@@ -15,6 +15,8 @@ static Type *new_type(TypeKind kind, int size, int align) {
   return ty;
 }
 
+Type *struct_type(void) { return new_type(TY_STRUCT, 0, 1); }
+
 bool is_integer(Type *ty) {
   TypeKind k = ty->kind;
   return k == TY_CHAR || k == TY_SHORT || k == TY_INT || k == TY_LONG ||
