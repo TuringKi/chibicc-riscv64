@@ -34,37 +34,41 @@ static Obj *locals;
 static Obj *globals;
 static Node *gotos;
 static Node *labels;
+static Node *current_switch;
+
+static char *cont_label;
 static char *brk_label;
 
 static Scope *scope = &(Scope){};
+
 static bool is_typename(Token *tok);
-static Type *type_suffix(Token **rest, Token *tok, Type *ty);
-static Type *declspec(Token **rest, Token *tok, VarAttr *attr);
-static Type *enum_specifier(Token **rest, Token *tok);
-static Type *declarator(Token **rest, Token *tok, Type *ty);
-static Node *declaration(Token **rest, Token *tok, Type *basety);
-static Node *block_stmt(Token **rest, Token *tok);
-static Node *expr(Token **rest, Token *tok);
-static Node *add(Token **rest, Token *tok);
 static Node * bitor (Token * *rest, Token *tok);
-static Node *bitxor(Token **rest, Token *tok);
+static Node *add(Token **rest, Token *tok);
+static Node *assign(Token **rest, Token *tok);
 static Node *bitand(Token **rest, Token *tok);
-static Node *logor(Token **rest, Token *tok);
+static Node *bitxor(Token **rest, Token *tok);
+static Node *block_stmt(Token **rest, Token *tok);
+static Node *cast(Token **rest, Token *tok);
+static Node *declaration(Token **rest, Token *tok, Type *basety);
+static Node *equality(Token **rest, Token *tok);
+static Node *expr_stmt(Token **rest, Token *tok);
+static Node *expr(Token **rest, Token *tok);
 static Node *logand(Token **rest, Token *tok);
+static Node *logor(Token **rest, Token *tok);
+static Node *mul(Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
-static Node *expr_stmt(Token **rest, Token *tok);
-static Node *assign(Token **rest, Token *tok);
-static Node *equality(Token **rest, Token *tok);
-static Node *relational(Token **rest, Token *tok);
-static Node *mul(Token **rest, Token *tok);
-static Type *struct_decl(Token **rest, Token *tok);
-static Type *union_decl(Token **rest, Token *tok);
-static Node *unary(Token **rest, Token *tok);
-static Node *cast(Token **rest, Token *tok);
-static Node *primary(Token **rest, Token *tok);
 static Node *postfix(Token **rest, Token *tok);
+static Node *primary(Token **rest, Token *tok);
+static Node *relational(Token **rest, Token *tok);
+static Node *unary(Token **rest, Token *tok);
 static Token *parse_typedef(Token *tok, Type *basety);
+static Type *declarator(Token **rest, Token *tok, Type *ty);
+static Type *declspec(Token **rest, Token *tok, VarAttr *attr);
+static Type *enum_specifier(Token **rest, Token *tok);
+static Type *struct_decl(Token **rest, Token *tok);
+static Type *type_suffix(Token **rest, Token *tok, Type *ty);
+static Type *union_decl(Token **rest, Token *tok);
 
 static Node *new_node(NodeKind kind, Token *tok) {
   Node *node = calloc(1, sizeof(Node));
@@ -498,11 +502,62 @@ static Node *stmt(Token **rest, Token *tok) {
     return node;
   }
 
+  if (equal(tok, "switch")) {
+    Node *node = new_node(ND_SWITCH, tok);
+    tok = skip(tok->next, "(");
+    node->cond = expr(&tok, tok);
+    tok = skip(tok, ")");
+
+    Node *sw = current_switch;
+    current_switch = node;
+
+    char *brk = brk_label;
+    brk_label = node->brk_label = new_unique_name();
+
+    node->then = stmt(rest, tok);
+
+    current_switch = sw;
+    brk_label = brk;
+    return node;
+  }
+
+  if (equal(tok, "case")) {
+    if (!current_switch) {
+      error_tok(tok, "stray case");
+    }
+    int val = get_number(tok->next);
+
+    Node *node = new_node(ND_CASE, tok);
+    tok = skip(tok->next->next, ":");
+    node->label = new_unique_name();
+    node->rhs = stmt(rest, tok);
+    node->val = val;
+    node->case_next = current_switch->case_next;
+    current_switch->case_next = node;
+    return node;
+  }
+
+  if (equal(tok, "default")) {
+    if (!current_switch) {
+      error_tok(tok, "stray default");
+    }
+
+    Node *node = new_node(ND_CASE, tok);
+    tok = skip(tok->next, ":");
+    node->label = new_unique_name();
+    node->rhs = stmt(rest, tok);
+    current_switch->default_case = node;
+    return node;
+  }
+
   if (equal(tok, "for")) {
     Node *node = new_node(ND_FOR, tok);
     tok = skip(tok->next, "(");
     char *brk = brk_label;
+    char *cont = cont_label;
+
     brk_label = node->brk_label = new_unique_name();
+    cont_label = node->cont_label = new_unique_name();
 
     enter_scope();
     if (is_typename(tok)) {
@@ -526,6 +581,7 @@ static Node *stmt(Token **rest, Token *tok) {
     node->then = stmt(rest, tok);
     leave_scope();
     brk_label = brk;
+    cont_label = cont;
 
     return node;
   }
@@ -536,10 +592,13 @@ static Node *stmt(Token **rest, Token *tok) {
     node->cond = expr(&tok, tok);
     tok = skip(tok, ")");
     char *brk = brk_label;
+    char *cont = cont_label;
     brk_label = node->brk_label = new_unique_name();
+    cont_label = node->cont_label = new_unique_name();
 
     node->then = stmt(rest, tok);
     brk_label = brk;
+    cont_label = brk;
 
     return node;
   }
@@ -550,6 +609,15 @@ static Node *stmt(Token **rest, Token *tok) {
     node->goto_next = gotos;
     gotos = node;
     *rest = skip(tok->next->next, ";");
+    return node;
+  }
+  if (equal(tok, "continue")) {
+    if (!cont_label) {
+      error_tok(tok, "stray continue");
+    }
+    Node *node = new_node(ND_GOTO, tok);
+    node->unique_label = cont_label;
+    *rest = skip(tok->next, ";");
     return node;
   }
 
@@ -567,7 +635,7 @@ static Node *stmt(Token **rest, Token *tok) {
     Node *node = new_node(ND_LABEL, tok);
     node->label = strndup(tok->loc, tok->len);
     node->unique_label = new_unique_name();
-    node->lhs = stmt(rest, tok->next->next);
+    node->rhs = stmt(rest, tok->next->next);
     node->goto_next = labels;
     labels = node;
     return node;

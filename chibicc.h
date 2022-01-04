@@ -68,39 +68,41 @@ struct Obj {
 
 typedef enum {
   ND_ADD,
-  ND_SUB,
-  ND_MUL,
-  ND_DIV,
-  ND_NEG,
-  ND_EQ,
-  ND_NOT,
-  ND_BITNOT,
+  ND_ADDR,
+  ND_ASSIGN,
   ND_BITAND,
+  ND_BITNOT,
   ND_BITOR,
   ND_BITXOR,
+  ND_BLOCK,
+  ND_CASE,
+  ND_CAST,
+  ND_COMMA,
+  ND_DEREF,
+  ND_DIV,
+  ND_EQ,
+  ND_EXPR_STMT,
+  ND_FOR,
+  ND_FUNCCAL,
+  ND_GOTO,
+  ND_IF,
+  ND_LABEL,
+  ND_LE,
   ND_LOGAND,
   ND_LOGOR,
-  ND_MOD,
-  ND_NE,
   ND_LT,
-  ND_LE,
-  ND_ASSIGN,
   ND_MEMBER,
-  ND_COMMA,
-  ND_ADDR,
-  ND_DEREF,
-  ND_RETURN,
-  ND_IF,
-  ND_FOR,
-  ND_BLOCK,
-  ND_GOTO,
-  ND_LABEL,
-  ND_FUNCCAL,
-  ND_EXPR_STMT,
-  ND_STMT_EXPR,
-  ND_VAR,
+  ND_MOD,
+  ND_MUL,
+  ND_NE,
+  ND_NEG,
+  ND_NOT,
   ND_NUM,
-  ND_CAST
+  ND_RETURN,
+  ND_STMT_EXPR,
+  ND_SUB,
+  ND_SWITCH,
+  ND_VAR,
 } NodeKind;
 
 struct Node {
@@ -122,10 +124,14 @@ struct Node {
   Node *init;
   Node *inc;
   char *brk_label;
+  char *cont_label;
 
   char *label;
   char *unique_label;
   Node *goto_next;
+
+  Node *case_next;
+  Node *default_case;
 
   Obj *var;
   int64_t val;
