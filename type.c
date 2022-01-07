@@ -124,6 +124,10 @@ void add_type(Node *node) {
     usual_arith_conv(&node->lhs, &node->rhs);
     node->ty = ty_int;
     return;
+  case ND_SHL:
+  case ND_SHR:
+    node->ty = node->lhs->ty;
+    return;
   case ND_BITNOT:
     node->ty = node->rhs->ty;
     return;

@@ -81,6 +81,8 @@ typedef enum {
   ND_DEREF,
   ND_DIV,
   ND_EQ,
+  ND_SHL,
+  ND_SHR,
   ND_EXPR_STMT,
   ND_FOR,
   ND_FUNCCAL,

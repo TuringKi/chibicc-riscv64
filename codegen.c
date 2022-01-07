@@ -372,6 +372,22 @@ static void gen_expr(Node *node) {
   case ND_DIV:
     println("\t\tdivw s1, s1, t0");
     return;
+  case ND_SHL:
+    if (node->ty->size == 8) {
+      println("\t\tsll s1, s1, t0");
+
+    } else {
+      println("\t\tsllw s1, s1, t0");
+    }
+    return;
+  case ND_SHR:
+    if (node->ty->size == 8) {
+      println("\t\tsraw s1, s1, t0");
+
+    } else {
+      println("\t\tsra s1, s1, t0");
+    }
+    return;
   }
 
   error_tok(node->tok, "invalid expression");
