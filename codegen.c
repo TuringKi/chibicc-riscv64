@@ -233,6 +233,39 @@ static void gen_expr(Node *node) {
     gen_expr(node->lhs);
     gen_expr(node->rhs);
     return;
+
+  case ND_MEMZERO: {
+    int cnt_of_int64 = node->var->ty->size / 8;
+    int rem64 = node->var->ty->size % 8;
+    for (int i = 0; i < cnt_of_int64; i++) {
+      println("\t\tsd zero, %d(fp)", node->var->offset + i * 8);
+    }
+    if (rem64 >= 4) {
+      println("\t\tsw zero, %d(fp)", node->var->offset + cnt_of_int64 * 8);
+      int rem32 = (rem64 - 4) % 4;
+      if (rem32 >= 2) {
+        println("\t\tsh zero, %d(fp)",
+                node->var->offset + cnt_of_int64 * 8 + 4);
+        if (rem32 == 3) {
+          println("\t\tsb zero, %d(fp)",
+                  node->var->offset + cnt_of_int64 * 8 + 6);
+        }
+      } else if (rem32 == 1) {
+        println("\t\tsb zero, %d(fp)",
+                node->var->offset + cnt_of_int64 * 8 + 4);
+      }
+    } else {
+      if (rem64 >= 2) {
+        println("\t\tsh zero, %d(fp)", node->var->offset + cnt_of_int64 * 8);
+      }
+      int rem16 = (rem64 - 2) % 2;
+      for (int i = 0; i < rem16; i++) {
+        println("\t\tsb zero, %d(fp)",
+                node->var->offset + cnt_of_int64 * 8 + 2 + i);
+      }
+    }
+  }
+    return;
   case ND_CAST: {
     gen_expr(node->rhs);
     println("\t\taddi sp,sp,-8");

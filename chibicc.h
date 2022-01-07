@@ -107,6 +107,7 @@ typedef enum {
   ND_SUB,
   ND_SWITCH,
   ND_VAR,
+  ND_MEMZERO
 } NodeKind;
 
 struct Node {
