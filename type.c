@@ -128,6 +128,14 @@ void add_type(Node *node) {
   case ND_SHR:
     node->ty = node->lhs->ty;
     return;
+  case ND_COND:
+    if (node->then->ty->kind == TY_VOID || node->els->ty->kind == TY_VOID) {
+      node->ty = ty_void;
+    } else {
+      usual_arith_conv(&node->then, &node->els);
+      node->ty = node->then->ty;
+    }
+    return;
   case ND_BITNOT:
     node->ty = node->rhs->ty;
     return;

@@ -220,6 +220,8 @@ static void gen_expr(Node *node) {
   println("\t\t.loc 1 %d", node->tok->line_no);
 
   switch (node->kind) {
+  case ND_NULL_EXPR:
+    return;
   case ND_NEG:
     gen_expr(node->rhs);
     println("\t\tsub s1, zero, s1");
@@ -300,6 +302,17 @@ static void gen_expr(Node *node) {
       gen_stmt(n);
     }
     return;
+  case ND_COND: {
+    int c = count();
+    gen_expr(node->cond);
+    println("\t\tbeqz s1, .L.else.%d", c);
+    gen_expr(node->then);
+    println("  j .L.end.%d", c);
+    println(".L.else.%d:", c);
+    gen_expr(node->els);
+    println(".L.end.%d:", c);
+    return;
+  }
   case ND_FUNCCAL: {
     int nargs = 0;
 
@@ -387,6 +400,7 @@ static void gen_expr(Node *node) {
     } else {
       println("\t\tsra s1, s1, t0");
     }
+
     return;
   }
 

@@ -29,6 +29,21 @@ typedef struct {
   bool is_static;
 } VarAttr;
 
+typedef struct Initializer Initializer;
+struct Initializer {
+  Initializer *next;
+  Type *ty;
+  Token *tok;
+  Node *expr;
+  Initializer **children;
+};
+typedef struct InitDesg InitDesg;
+struct InitDesg {
+  InitDesg *next;
+  int idx;
+  Obj *var;
+};
+
 static Obj *current_fn;
 static Obj *locals;
 static Obj *globals;
@@ -42,6 +57,7 @@ static char *brk_label;
 static Scope *scope = &(Scope){};
 
 static bool is_typename(Token *tok);
+static int64_t const_expr(Token **rest, Token *tok);
 static Node * bitor (Token * *rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
 static Node *assign(Token **rest, Token *tok);
@@ -49,12 +65,14 @@ static Node *bitand(Token **rest, Token *tok);
 static Node *bitxor(Token **rest, Token *tok);
 static Node *block_stmt(Token **rest, Token *tok);
 static Node *cast(Token **rest, Token *tok);
+static Node *conditional(Token **rest, Token *tok);
 static Node *declaration(Token **rest, Token *tok, Type *basety);
 static Node *equality(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
 static Node *logand(Token **rest, Token *tok);
 static Node *logor(Token **rest, Token *tok);
+static Node *lvar_initializer(Token **rest, Token *tok, Obj *var);
 static Node *mul(Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
@@ -119,6 +137,20 @@ static VarScope *push_scope(char *name) {
   sc->next = scope->vars;
   scope->vars = sc;
   return sc;
+}
+
+static Initializer *new_initializer(Type *ty) {
+  Initializer *init = calloc(1, sizeof(Initializer));
+  init->ty = ty;
+
+  if (ty->kind == TY_ARRAY) {
+    init->children = calloc(ty->array_len, sizeof(Initializer *));
+    for (int i = 0; i < ty->array_len; i++) {
+      init->children[i] = new_initializer(ty->base);
+    }
+  }
+
+  return init;
 }
 
 static Node *new_long(int64_t val, Token *tok) {
@@ -352,8 +384,8 @@ static Type *array_dimensions(Token **rest, Token *tok, Type *ty) {
     return array_of(ty, -1);
   }
 
-  int sz = get_number(tok);
-  tok = skip(tok->next, "]");
+  int sz = const_expr(&tok, tok);
+  tok = skip(tok, "]");
   ty = type_suffix(rest, tok, ty);
   return array_of(ty, sz);
 }
@@ -462,8 +494,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
     tok = tok->next;
 
     if (equal(tok, "=")) {
-      val = get_number(tok->next);
-      tok = tok->next->next;
+      val = const_expr(&tok, tok->next);
     }
 
     VarScope *sc = push_scope(name);
@@ -526,10 +557,10 @@ static Node *stmt(Token **rest, Token *tok) {
     if (!current_switch) {
       error_tok(tok, "stray case");
     }
-    int val = get_number(tok->next);
 
     Node *node = new_node(ND_CASE, tok);
-    tok = skip(tok->next->next, ":");
+    int val = const_expr(&tok, tok->next);
+    tok = skip(tok, ":");
     node->label = new_unique_name();
     node->rhs = stmt(rest, tok);
     node->val = val;
@@ -649,6 +680,77 @@ static Node *stmt(Token **rest, Token *tok) {
   return expr_stmt(rest, tok);
 }
 
+// Evaluate a given node as a constant expression.
+static int64_t eval(Node *node) {
+  add_type(node);
+
+  switch (node->kind) {
+  case ND_ADD:
+    return eval(node->lhs) + eval(node->rhs);
+  case ND_SUB:
+    return eval(node->lhs) - eval(node->rhs);
+  case ND_MUL:
+    return eval(node->lhs) * eval(node->rhs);
+  case ND_DIV:
+    return eval(node->lhs) / eval(node->rhs);
+  case ND_NEG:
+    return -eval(node->rhs);
+  case ND_MOD:
+    return eval(node->lhs) % eval(node->rhs);
+  case ND_BITAND:
+    return eval(node->lhs) & eval(node->rhs);
+  case ND_BITOR:
+    return eval(node->lhs) | eval(node->rhs);
+  case ND_BITXOR:
+    return eval(node->lhs) ^ eval(node->rhs);
+  case ND_SHL:
+    return eval(node->lhs) << eval(node->rhs);
+  case ND_SHR:
+    return eval(node->lhs) >> eval(node->rhs);
+  case ND_EQ:
+    return eval(node->lhs) == eval(node->rhs);
+  case ND_NE:
+    return eval(node->lhs) != eval(node->rhs);
+  case ND_LT:
+    return eval(node->lhs) < eval(node->rhs);
+  case ND_LE:
+    return eval(node->lhs) <= eval(node->rhs);
+  case ND_COND:
+    return eval(node->cond) ? eval(node->then) : eval(node->els);
+  case ND_COMMA:
+    return eval(node->rhs);
+  case ND_NOT:
+    return !eval(node->rhs);
+  case ND_BITNOT:
+    return ~eval(node->rhs);
+  case ND_LOGAND:
+    return eval(node->lhs) && eval(node->rhs);
+  case ND_LOGOR:
+    return eval(node->lhs) || eval(node->rhs);
+  case ND_CAST:
+    if (is_integer(node->ty)) {
+      switch (node->ty->size) {
+      case 1:
+        return (uint8_t)eval(node->rhs);
+      case 2:
+        return (uint16_t)eval(node->rhs);
+      case 4:
+        return (uint32_t)eval(node->rhs);
+      }
+    }
+    return eval(node->rhs);
+  case ND_NUM:
+    return node->val;
+  }
+
+  error_tok(node->tok, "not a compile-time constant");
+}
+
+static int64_t const_expr(Token **rest, Token *tok) {
+  Node *node = conditional(rest, tok);
+  return eval(node);
+}
+
 static Type *abstract_declarator(Token **rest, Token *tok, Type *ty) {
   while (equal(tok, "*")) {
     ty = pointer_to(ty);
@@ -693,20 +795,72 @@ static Node *declaration(Token **rest, Token *tok, Type *basety) {
     }
     Obj *var = new_lvar(get_ident(ty->name), ty);
 
-    if (!equal(tok, "=")) {
-      continue;
+    if (equal(tok, "=")) {
+      Node *expr = lvar_initializer(&tok, tok->next, var);
+      cur = cur->next = new_unary(ND_EXPR_STMT, expr, tok);
     }
-
-    Node *lhs = new_variable(var, ty->name);
-    Node *rhs = assign(&tok, tok->next);
-    Node *node = new_binary(ND_ASSIGN, lhs, rhs, tok);
-    cur = cur->next = new_unary(ND_EXPR_STMT, node, tok);
   }
 
   Node *node = new_node(ND_BLOCK, tok);
   node->body = head.next;
   *rest = tok->next;
   return node;
+}
+
+static void initializer2(Token **rest, Token *tok, Initializer *init) {
+  if (init->ty->kind == TY_ARRAY) {
+    tok = skip(tok, "{");
+
+    for (int i = 0; i < init->ty->array_len; i++) {
+      if (i > 0) {
+        tok = skip(tok, ",");
+      }
+      initializer2(&tok, tok, init->children[i]);
+    }
+    *rest = skip(tok, "}");
+    return;
+  }
+
+  init->expr = assign(rest, tok);
+}
+
+static Initializer *initializer(Token **rest, Token *tok, Type *ty) {
+  Initializer *init = new_initializer(ty);
+  initializer2(rest, tok, init);
+  return init;
+}
+
+static Node *init_desg_expr(InitDesg *desg, Token *tok) {
+  if (desg->var) {
+    return new_variable(desg->var, tok);
+  }
+
+  Node *lhs = init_desg_expr(desg->next, tok);
+  Node *rhs = new_num(desg->idx, tok);
+  return new_unary(ND_DEREF, new_add(lhs, rhs, tok), tok);
+}
+
+static Node *create_lvar_init(Initializer *init, Type *ty, InitDesg *desg,
+                              Token *tok) {
+  if (ty->kind == TY_ARRAY) {
+    Node *node = new_node(ND_NULL_EXPR, tok);
+    for (int i = 0; i < ty->array_len; i++) {
+      InitDesg desg2 = {desg, i};
+      Node *rhs = create_lvar_init(init->children[i], ty->base, &desg2, tok);
+      node = new_binary(ND_COMMA, node, rhs, tok);
+    }
+    return node;
+  }
+
+  Node *lhs = init_desg_expr(desg, tok);
+  Node *rhs = init->expr;
+  return new_binary(ND_ASSIGN, lhs, rhs, tok);
+}
+
+static Node *lvar_initializer(Token **rest, Token *tok, Obj *var) {
+  Initializer *init = initializer(rest, tok, var->ty);
+  InitDesg desg = {NULL, 0, var};
+  return create_lvar_init(init, var->ty, &desg, tok);
 }
 
 static Node *block_stmt(Token **rest, Token *tok) {
@@ -785,7 +939,7 @@ static Node *to_assign(Node *binary) {
 }
 
 static Node *assign(Token **rest, Token *tok) {
-  Node *node = logor(&tok, tok);
+  Node *node = conditional(&tok, tok);
 
   if (equal(tok, "=")) {
     return new_binary(ND_ASSIGN, node, assign(rest, tok->next), tok);
@@ -831,7 +985,22 @@ static Node *assign(Token **rest, Token *tok) {
   return node;
 }
 
-// logor = logand ("||" logand)*
+static Node *conditional(Token **rest, Token *tok) {
+  Node *cond = logor(&tok, tok);
+
+  if (!equal(tok, "?")) {
+    *rest = tok;
+    return cond;
+  }
+
+  Node *node = new_node(ND_COND, tok);
+  node->cond = cond;
+  node->then = expr(&tok, tok->next);
+  tok = skip(tok, ":");
+  node->els = conditional(rest, tok);
+  return node;
+}
+
 static Node *logor(Token **rest, Token *tok) {
   Node *node = logand(&tok, tok);
   while (equal(tok, "||")) {

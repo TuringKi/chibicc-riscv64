@@ -67,6 +67,7 @@ struct Obj {
 };
 
 typedef enum {
+  ND_NULL_EXPR,
   ND_ADD,
   ND_ADDR,
   ND_ASSIGN,
@@ -83,6 +84,7 @@ typedef enum {
   ND_EQ,
   ND_SHL,
   ND_SHR,
+  ND_COND,
   ND_EXPR_STMT,
   ND_FOR,
   ND_FUNCCAL,
