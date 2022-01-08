@@ -34,6 +34,7 @@ struct Initializer {
   Initializer *next;
   Type *ty;
   Token *tok;
+  bool is_flexible;
   Node *expr;
   Initializer **children;
 };
@@ -41,6 +42,7 @@ typedef struct InitDesg InitDesg;
 struct InitDesg {
   InitDesg *next;
   int idx;
+  Member *member;
   Obj *var;
 };
 
@@ -73,6 +75,9 @@ static Node *expr(Token **rest, Token *tok);
 static Node *logand(Token **rest, Token *tok);
 static Node *logor(Token **rest, Token *tok);
 static Node *lvar_initializer(Token **rest, Token *tok, Obj *var);
+static void initializer2(Token **rest, Token *tok, Initializer *init);
+static Initializer *initializer(Token **rest, Token *tok, Type *ty,
+                                Type **new_ty);
 static Node *mul(Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
@@ -139,20 +144,38 @@ static VarScope *push_scope(char *name) {
   return sc;
 }
 
-static Initializer *new_initializer(Type *ty) {
+static Initializer *new_initializer(Type *ty, bool is_flexible) {
   Initializer *init = calloc(1, sizeof(Initializer));
   init->ty = ty;
 
   if (ty->kind == TY_ARRAY) {
+    if (is_flexible && ty->size < 0) {
+      init->is_flexible = true;
+      return init;
+    }
     init->children = calloc(ty->array_len, sizeof(Initializer *));
     for (int i = 0; i < ty->array_len; i++) {
-      init->children[i] = new_initializer(ty->base);
+      init->children[i] = new_initializer(ty->base, false);
     }
+    return init;
+  }
+  if (ty->kind == TY_STRUCT) {
+    // Count the number of struct members.
+    int len = 0;
+    for (Member *mem = ty->members; mem; mem = mem->next) {
+      len++;
+    }
+
+    init->children = calloc(len, sizeof(Initializer *));
+
+    for (Member *mem = ty->members; mem; mem = mem->next) {
+      init->children[mem->idx] = new_initializer(mem->ty, false);
+    }
+    return init;
   }
 
   return init;
 }
-
 static Node *new_long(int64_t val, Token *tok) {
   Node *node = new_node(ND_NUM, tok);
   node->val = val;
@@ -784,10 +807,7 @@ static Node *declaration(Token **rest, Token *tok, Type *basety) {
       tok = skip(tok, ",");
     }
 
-    Type *ty = declarator(&tok, tok, basety); // variable or variable of pointer
-    if (ty->size < 0) {
-      error_tok(tok, "variable has incomplete type");
-    }
+    Type *ty = declarator(&tok, tok, basety);
 
     if (ty->kind == TY_VOID) {
       error_tok(tok, "variable declared void");
@@ -798,6 +818,12 @@ static Node *declaration(Token **rest, Token *tok, Type *basety) {
       Node *expr = lvar_initializer(&tok, tok->next, var);
       cur = cur->next = new_unary(ND_EXPR_STMT, expr, tok);
     }
+    if (var->ty->size < 0) {
+      error_tok(ty->name, "variable has incomplete type");
+    }
+    if (var->ty->kind == TY_VOID) {
+      error_tok(ty->name, "variable declared void");
+    }
   }
 
   Node *node = new_node(ND_BLOCK, tok);
@@ -806,32 +832,127 @@ static Node *declaration(Token **rest, Token *tok, Type *basety) {
   return node;
 }
 
-static void initializer2(Token **rest, Token *tok, Initializer *init) {
-  if (init->ty->kind == TY_ARRAY) {
-    tok = skip(tok, "{");
+static Token *skip_excess_element(Token *tok) {
+  if (equal(tok, "{")) {
+    tok = skip_excess_element(tok->next);
+    return skip(tok, "}");
+  }
 
-    for (int i = 0; i < init->ty->array_len && !equal(tok, "}"); i++) {
-      if (i > 0) {
-        tok = skip(tok, ",");
-      }
-      initializer2(&tok, tok, init->children[i]);
+  assign(&tok, tok);
+  return tok;
+}
+
+// string-initializer = string-literal
+static void string_initializer(Token **rest, Token *tok, Initializer *init) {
+  if (init->is_flexible) {
+    *init =
+        *new_initializer(array_of(init->ty->base, tok->ty->array_len), false);
+  }
+  int len = MIN(init->ty->array_len, tok->ty->array_len);
+  for (int i = 0; i < len; i++)
+    init->children[i]->expr = new_num(tok->str[i], tok);
+  *rest = tok->next;
+}
+
+static int count_array_init_elements(Token *tok, Type *ty) {
+  Initializer *dummy = new_initializer(ty->base, false);
+  int i = 0;
+
+  for (; !equal(tok, "}"); i++) {
+    if (i > 0) {
+      tok = skip(tok, ",");
     }
-    *rest = skip(tok, "}");
+    initializer2(&tok, tok, dummy);
+  }
+  return i;
+}
+
+static void struct_initializer(Token **rest, Token *tok, Initializer *init) {
+  tok = skip(tok, "{");
+
+  Member *mem = init->ty->members;
+
+  while (!consume(rest, tok, "}")) {
+    if (mem != init->ty->members) {
+      tok = skip(tok, ",");
+    }
+
+    if (mem) {
+      initializer2(&tok, tok, init->children[mem->idx]);
+      mem = mem->next;
+    } else {
+      tok = skip_excess_element(tok);
+    }
+  }
+}
+
+static void array_initializer(Token **rest, Token *tok, Initializer *init) {
+
+  tok = skip(tok, "{");
+
+  if (init->is_flexible) {
+    int len = count_array_init_elements(tok, init->ty);
+    *init = *new_initializer(array_of(init->ty->base, len), false);
+  }
+
+  for (int i = 0; !consume(rest, tok, "}"); i++) {
+    if (i > 0) {
+      tok = skip(tok, ",");
+    }
+
+    if (i < init->ty->array_len) {
+      initializer2(&tok, tok, init->children[i]);
+    } else {
+      tok = skip_excess_element(tok);
+    }
+  }
+}
+
+static void initializer2(Token **rest, Token *tok, Initializer *init) {
+  if (init->ty->kind == TY_ARRAY && tok->kind == TK_STR) {
+    string_initializer(rest, tok, init);
+    return;
+  }
+
+  if (init->ty->kind == TY_ARRAY) {
+    array_initializer(rest, tok, init);
+    return;
+  }
+
+  if (init->ty->kind == TY_STRUCT) {
+    if (!equal(tok, "{")) {
+      Node *expr = assign(rest, tok);
+      add_type(expr);
+      if (expr->ty->kind == TY_STRUCT) {
+        init->expr = expr;
+        return;
+      }
+    }
+
+    struct_initializer(rest, tok, init);
     return;
   }
 
   init->expr = assign(rest, tok);
 }
 
-static Initializer *initializer(Token **rest, Token *tok, Type *ty) {
-  Initializer *init = new_initializer(ty);
+static Initializer *initializer(Token **rest, Token *tok, Type *ty,
+                                Type **new_ty) {
+  Initializer *init = new_initializer(ty, true);
   initializer2(rest, tok, init);
+  *new_ty = init->ty;
   return init;
 }
 
 static Node *init_desg_expr(InitDesg *desg, Token *tok) {
   if (desg->var) {
     return new_variable(desg->var, tok);
+  }
+
+  if (desg->member) {
+    Node *node = new_unary(ND_MEMBER, init_desg_expr(desg->next, tok), tok);
+    node->member = desg->member;
+    return node;
   }
 
   Node *lhs = init_desg_expr(desg->next, tok);
@@ -850,6 +971,19 @@ static Node *create_lvar_init(Initializer *init, Type *ty, InitDesg *desg,
     }
     return node;
   }
+
+  if (ty->kind == TY_STRUCT && !init->expr) {
+    Node *node = new_node(ND_NULL_EXPR, tok);
+
+    for (Member *mem = ty->members; mem; mem = mem->next) {
+      InitDesg desg2 = {desg, 0, mem};
+      Node *rhs =
+          create_lvar_init(init->children[mem->idx], mem->ty, &desg2, tok);
+      node = new_binary(ND_COMMA, node, rhs, tok);
+    }
+    return node;
+  }
+
   if (!init->expr) {
     return new_node(ND_NULL_EXPR, tok);
   }
@@ -859,8 +993,8 @@ static Node *create_lvar_init(Initializer *init, Type *ty, InitDesg *desg,
 }
 
 static Node *lvar_initializer(Token **rest, Token *tok, Obj *var) {
-  Initializer *init = initializer(rest, tok, var->ty);
-  InitDesg desg = {NULL, 0, var};
+  Initializer *init = initializer(rest, tok, var->ty, &var->ty);
+  InitDesg desg = {NULL, 0, NULL, var};
   Node *lhs = new_node(ND_MEMZERO, tok);
   lhs->var = var;
 
@@ -1242,18 +1376,23 @@ static Node *cast(Token **rest, Token *tok) {
 static void struct_members(Token **rest, Token *tok, Type *ty) {
   Member head = {};
   Member *cur = &head;
+  int idx = 0;
 
   while (!equal(tok, "}")) {
     Type *basety = declspec(&tok, tok, NULL);
-    int i = 0;
+    bool first = true;
 
     while (!consume(&tok, tok, ";")) {
-      if (i++)
+      if (!first) {
         tok = skip(tok, ",");
+      }
+      first = false;
 
       Member *mem = calloc(1, sizeof(Member));
       mem->ty = declarator(&tok, tok, basety);
       mem->name = mem->ty->name;
+      mem->idx = idx++;
+
       cur = cur->next = mem;
     }
   }
