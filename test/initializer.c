@@ -1,5 +1,52 @@
 #include "test.h"
 
+char g3 = 3;
+short g4 = 4;
+int g5 = 5;
+long g6 = 6;
+int g9[3] = {0, 1, 2};
+struct {
+  char a;
+  int b;
+} g11[2] = {{1, 2}, {3, 4}};
+struct {
+  int a[2];
+} g12[2] = {{{1, 2}}};
+union {
+  int a;
+  char b[8];
+} g13[2] = {0x01020304, 0x05060708};
+
+char g17[] = "foobar";
+char g18[10] = "foobar";
+char g19[3] = "foobar";
+char *g20 = g17 + 0;
+char *g21 = g17 + 3;
+char *g22 = &g17 - 3;
+char *g23[] = {g17 + 0, g17 + 3, g17 - 3};
+int g24 = 3;
+int *g25 = &g24;
+int g26[3] = {1, 2, 3};
+int *g27 = g26 + 1;
+int *g28 = &g11[1].a;
+long g29 = (long)(long)g26;
+
+struct {
+  int a[2];
+} g40[2] = {{1, 2}, 3, 4};
+struct {
+  int a[2];
+} g41[2] = {1, 2, 3, 4};
+char g43[][4] = {'f', 'o', 'o', 0, 'b', 'a', 'r', 0};
+
+struct {
+  struct {
+    int a[3];
+  } a;
+} g30 = {{{1, 2, 3}}};
+int *g31 = g30.a.a;
+char *g44 = {"foo"};
+
 int main() {
   ASSERT(1, ({
            int x[3] = {1, 2, 3};
@@ -253,6 +300,87 @@ int main() {
            y.a;
          }));
 
+  ASSERT(4, ({
+           union {
+             int a;
+             char b[4];
+           } x = {0x01020304};
+           x.b[0];
+         }));
+  ASSERT(3, ({
+           union {
+             int a;
+             char b[4];
+           } x = {0x01020304};
+           x.b[1];
+         }));
+
+  ASSERT(0x01020304, ({
+           union {
+             struct {
+               char a, b, c, d;
+             } e;
+             int f;
+           } x = {{4, 3, 2, 1}};
+           x.f;
+         }));
+
+  ASSERT(3, g3);
+  ASSERT(4, g4);
+  ASSERT(5, g5);
+  ASSERT(6, g6);
+
+  ASSERT(0, g9[0]);
+  ASSERT(1, g9[1]);
+  ASSERT(2, g9[2]);
+
+  ASSERT(1, g11[0].a);
+  ASSERT(2, g11[0].b);
+  ASSERT(3, g11[1].a);
+  ASSERT(4, g11[1].b);
+
+  ASSERT(1, g12[0].a[0]);
+  ASSERT(2, g12[0].a[1]);
+  ASSERT(0, g12[1].a[0]);
+  ASSERT(0, g12[1].a[1]);
+
+  ASSERT(1, g40[0].a[0]);
+  ASSERT(2, g40[0].a[1]);
+  ASSERT(3, g40[1].a[0]);
+  ASSERT(4, g40[1].a[1]);
+
+  ASSERT(1, g41[0].a[0]);
+  ASSERT(2, g41[0].a[1]);
+  ASSERT(3, g41[1].a[0]);
+  ASSERT(4, g41[1].a[1]);
+
+  ASSERT(0, ({
+           int x[2][3] = {0, 1, 2, 3, 4, 5};
+           x[0][0];
+         }));
+  ASSERT(3, ({
+           int x[2][3] = {0, 1, 2, 3, 4, 5};
+           x[1][0];
+         }));
+
+  ASSERT(0, ({
+           struct {
+             int a;
+             int b;
+           } x[2] = {0, 1, 2, 3};
+           x[0].a;
+         }));
+  ASSERT(2, ({
+           struct {
+             int a;
+             int b;
+           } x[2] = {0, 1, 2, 3};
+           x[1].a;
+         }));
+
+  ASSERT(0, strcmp(g43[0], "foo"));
+  ASSERT(0, strcmp(g43[1], "bar"));
+  ASSERT(0, strcmp(g44, "foo"));
   printf("OK\n");
   return 0;
 }

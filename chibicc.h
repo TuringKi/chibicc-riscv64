@@ -16,6 +16,7 @@
 typedef struct Type Type;
 typedef struct Node Node;
 typedef struct Member Member;
+typedef struct Relocation Relocation;
 
 char *format(char *fmt, ...);
 
@@ -66,7 +67,16 @@ struct Obj {
   Node *body;
   Obj *locals;
   char *init_data;
+  Relocation *rel;
   int stack_size;
+};
+
+typedef struct Relocation Relocation;
+struct Relocation {
+  Relocation *next;
+  int offset;
+  char *label;
+  long addend;
 };
 
 typedef enum {
