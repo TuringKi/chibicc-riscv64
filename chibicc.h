@@ -59,6 +59,7 @@ struct Obj {
   char *name;
   Type *ty;
   bool is_local;
+  int align;
   bool is_definition;
   bool is_function;
   bool is_static;
@@ -184,6 +185,8 @@ struct Type {
   Type *base;
   Token *name;
   int array_len;
+  bool is_flexible;
+
   Member *members;
   Type *return_ty;
   Type *params;
@@ -196,6 +199,7 @@ struct Member {
   Token *name;
   int idx;
   int offset;
+  int align;
 };
 extern Type *ty_void;
 extern Type *ty_bool;

@@ -529,22 +529,46 @@ static void assign_lvar_offsets(Obj *prog) {
     int offset = 16; // 0~16:ra, fp
     for (Obj *var = fn->locals; var; var = var->next) {
       offset += var->ty->size;
-      offset = align_to(offset, var->ty->align);
+      offset = align_to(offset, var->align);
       var->offset = -offset;
     }
     fn->stack_size = align_to(offset, 16);
   }
 }
 
+static int find_pow2(Token *tok, int val) {
+
+  long p2 = 1;
+  for (int i = 1; i <= 63; i++) {
+    if (p2 << i == val) {
+      return i;
+    }
+  }
+  error_tok(tok, "requested alignment '%d' is not a positive power of 2", val);
+  return -1;
+}
+
 static void emit_data(Obj *prog) {
 
   for (Obj *var = prog; var; var = var->next) {
-    if (var->is_function) {
+    if (var->is_function || !var->is_definition) {
       continue;
     }
 
-    println(".globl %s", var->name);
-
+    println("\t\t.globl %s", var->name);
+    Token *tok = var->ty->name;
+    if (tok && var->align > 1) {
+      int align = find_pow2(tok, var->align);
+      if (var->ty->kind == TY_ARRAY || var->ty->kind == TY_STRUCT ||
+          var->ty->kind == TY_UNION) {
+        if (align < 3) {
+          align = 3;
+        }
+      }
+      println("\t\t.align %d", align);
+    } else {
+      // println("\t\t.align 1");
+    }
     if (var->init_data) {
       println(".data");
       println("%s:", var->name);
@@ -576,10 +600,10 @@ void emit_text(Obj *prog) {
       continue;
     }
     if (fn->is_static) {
-      println(".local %s", fn->name);
+      println("\t\t.local %s", fn->name);
 
     } else {
-      println(".globl %s", fn->name);
+      println("\t\t.globl %s", fn->name);
     }
     println(".text");
     println("%s:", fn->name);

@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/./riscv64-chibicc",
-            "args": ["-o","a.s", "a.ct"],
+            "args": ["-o","tmp0.s", "b.ct"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
