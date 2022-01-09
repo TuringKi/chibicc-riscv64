@@ -543,11 +543,12 @@ static void emit_data(Obj *prog) {
       continue;
     }
 
-    println(".data");
     println(".globl %s", var->name);
-    println("%s:", var->name);
 
     if (var->init_data) {
+      println(".data");
+      println("%s:", var->name);
+
       Relocation *rel = var->rel;
       int pos = 0;
       while (pos < var->ty->size) {
@@ -559,9 +560,12 @@ static void emit_data(Obj *prog) {
           println("\t\t.byte %d", var->init_data[pos++]);
         }
       }
-    } else {
-      println("\t\t.zero %d", var->ty->size);
+
+      continue;
     }
+    println(".bss");
+    println("%s:", var->name);
+    println("\t\t.zero %d", var->ty->size);
   }
 }
 
