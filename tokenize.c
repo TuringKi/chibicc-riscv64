@@ -95,9 +95,9 @@ static bool is_ident1(char c) {
 static bool is_ident2(char c) { return is_ident1(c) || ('0' <= c && c <= '9'); }
 
 static int read_punct(char *p) {
-  static char *kw[] = {"<<=", ">>=", "==", "!=", "<=", ">=", "->",
-                       "+=",  "-=",  "*=", "/=", "++", "--", "%=",
-                       "&=",  "|=",  "^=", "&&", "||", "<<", ">>"};
+  static char *kw[] = {"<<=", ">>=", "...", "==", "!=", "<=", ">=", "->",
+                       "+=",  "-=",  "*=",  "/=", "++", "--", "%=", "&=",
+                       "|=",  "^=",  "&&",  "||", "<<", ">>"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (startwith(p, kw[i])) {

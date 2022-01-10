@@ -63,6 +63,8 @@ struct Obj {
   bool is_definition;
   bool is_function;
   bool is_static;
+  Obj *va_area;
+
   int offset;
   Obj *params;
   Node *body;
@@ -187,7 +189,7 @@ struct Type {
   Token *name;
   int array_len;
   bool is_flexible;
-
+  bool is_variadic;
   Member *members;
   Type *return_ty;
   Type *params;

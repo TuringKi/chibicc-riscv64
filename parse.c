@@ -430,11 +430,19 @@ static Type *func_param(Token **rest, Token *tok, Type *ty) {
 
   Type head = {};
   Type *cur = &head;
+  bool is_variadic = false;
 
   while (!equal(tok, ")")) {
     if (cur != &head) {
       tok = skip(tok, ",");
     }
+    if (equal(tok, "...")) {
+      is_variadic = true;
+      tok = tok->next;
+      skip(tok, ")");
+      break;
+    }
+
     Type *ty2 = declspec(&tok, tok, NULL);
     ty2 = declarator(&tok, tok, ty2);
 
@@ -449,6 +457,7 @@ static Type *func_param(Token **rest, Token *tok, Type *ty) {
 
   ty = func_type(ty);
   ty->params = head.next;
+  ty->is_variadic = is_variadic;
   *rest = tok->next;
   return ty;
 }
@@ -2087,6 +2096,10 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   enter_scope();
   create_param_lvars(ty->params);
   fn->params = locals;
+  if (ty->is_variadic) {
+
+    fn->va_area = new_lvar("__va_area__", array_of(ty_char, 136));
+  }
 
   tok = skip(tok, "{");
   fn->body = block_stmt(&tok, tok);

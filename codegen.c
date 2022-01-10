@@ -19,8 +19,8 @@ static void println(char *fmt, ...) {
 
 enum { I8, I16, I32, I64 };
 
-static int getTypeId(Type *ty) {
-  switch (ty->kind) {
+static int getTypeId(TypeKind ty) {
+  switch (ty) {
   case TY_CHAR:
     return I8;
   case TY_SHORT:
@@ -31,7 +31,7 @@ static int getTypeId(Type *ty) {
   return I64;
 }
 
-static void cmp_zero(Type *ty) { println("\t\tsnez s1, s1"); }
+static void cmp_zero() { println("\t\tsnez s1, s1"); }
 
 static char i32i8[] = "\t\tlb s1, 0(%s)";
 static char i32i16[] = "\t\tlh s1, 0(%s)";
@@ -42,12 +42,12 @@ static char *cast_table[][10] = {
     {i32i8, i32i16, NULL, i32i64}, // i32
     {i32i8, i32i16, NULL, NULL},   // i64
 };
-static void cast(Type *from, Type *to, char *r) {
-  if (to->kind == TY_VOID) {
+static void cast(TypeKind from, TypeKind to, char *r) {
+  if (to == TY_VOID) {
     return;
   }
-  if (to->kind == TY_BOOL) {
-    cmp_zero(from);
+  if (to == TY_BOOL) {
+    cmp_zero();
     return;
   }
   int t1 = getTypeId(from);
@@ -275,7 +275,7 @@ static void gen_expr(Node *node) {
 
     println("\t\tsd s1, 0(sp)");
 
-    cast(node->rhs->ty, node->ty, "sp");
+    cast(node->rhs->ty->kind, node->ty->kind, "sp");
     println("\t\taddi sp,sp,8");
   }
     return;
@@ -365,11 +365,33 @@ static void gen_expr(Node *node) {
     if (depth % 2 == 0) {
       println("\t\tcall %s", node->funcname);
     } else {
-      println("addi sp, sp, -8");
+      println("\t\taddi sp, sp, -8");
       println("\t\tcall %s", node->funcname);
-      println("addi sp, sp, 8");
+      println("\t\taddi sp, sp, 8");
     }
-    println("\t\tmv s1, a0");
+
+    println("\t\taddi sp,sp,-8");
+    println("\t\tsd a0, 0(sp)");
+
+    switch (node->ty->kind) {
+    case TY_BOOL:
+      println("\t\tsnez s1, a0");
+      break;
+    case TY_CHAR:
+      println("\t\tlb s1, 0(sp)");
+      break;
+    case TY_SHORT:
+      println("\t\tlh s1, 0(sp)");
+      break;
+    case TY_INT:
+      println("\t\tlw s1, 0(sp)");
+      break;
+    default:
+      println("\t\tld s1, 0(sp)");
+      break;
+    }
+
+    println("\t\taddi sp,sp,8");
     return;
   }
   }
@@ -638,6 +660,35 @@ void emit_text(Obj *prog) {
     println("\t\taddi fp, sp, 0");
     println("\t\tli t1, %d", fn->stack_size);
     println("\t\tsub sp, sp, t1");
+
+    if (fn->va_area) {
+      int np = 0;
+      for (Obj *var = fn->params; var; var = var->next) {
+        np++;
+      }
+      int offset = fn->va_area->offset;
+
+      //   int gp_offset;
+      //   int fp_offset;
+      //   void *overflow_arg_area;
+      //   void *reg_save_area;
+      println("\t\tli s1, %d", np);
+      println("\t\tsw s1, %d(sp)", offset);
+      println("\t\tsw zero, %d(sp)", offset + 4);
+      println("\t\tsd sp, %d(sp)", offset + 8);
+      println("\t\tmv s1, sp");
+      println("\t\tadd s1, s1, %d", offset + 24);
+      println("\t\tsd s1, %d(sp)", offset + 16);
+
+      println("\t\tsd a0, %d(sp)", offset + 24);
+      println("\t\tsd a1, %d(sp)", offset + 32);
+      println("\t\tsd a2, %d(sp)", offset + 40);
+      println("\t\tsd a3, %d(sp)", offset + 48);
+      println("\t\tsd a4, %d(sp)", offset + 56);
+      println("\t\tsd a5, %d(sp)", offset + 64);
+      println("\t\tsd a6, %d(sp)", offset + 72);
+      println("\t\tsd a7, %d(sp)", offset + 80);
+    }
 
     int i = 0;
     for (Obj *var = fn->params; var; var = var->next) {
