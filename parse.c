@@ -231,6 +231,7 @@ Node *new_cast(Node *expr, Type *ty) {
 static Obj *new_gvar(char *name, Type *ty) {
   Obj *var = new_var(name, ty);
   var->next = globals;
+  var->is_static = true;
   var->is_definition = true;
   globals = var;
   return var;
@@ -661,6 +662,10 @@ static Type *enum_specifier(Token **rest, Token *tok) {
 static Node *stmt(Token **rest, Token *tok) {
   if (equal(tok, "return")) {
     Node *node = new_node(ND_RETURN, tok);
+    if (consume(rest, tok->next, ";")) {
+      return node;
+    }
+
     Node *exp = expr(&tok, tok->next);
     *rest = skip(tok, ";");
 
@@ -763,6 +768,26 @@ static Node *stmt(Token **rest, Token *tok) {
     brk_label = brk;
     cont_label = cont;
 
+    return node;
+  }
+  if (equal(tok, "do")) {
+    Node *node = new_node(ND_DO, tok);
+
+    char *brk = brk_label;
+    char *cont = cont_label;
+    brk_label = node->brk_label = new_unique_name();
+    cont_label = node->cont_label = new_unique_name();
+
+    node->then = stmt(&tok, tok->next);
+
+    brk_label = brk;
+    cont_label = cont;
+
+    tok = skip(tok, "while");
+    tok = skip(tok, "(");
+    node->cond = expr(&tok, tok);
+    tok = skip(tok, ")");
+    *rest = skip(tok, ";");
     return node;
   }
 
@@ -978,6 +1003,16 @@ static Node *declaration(Token **rest, Token *tok, Type *basety,
     if (ty->kind == TY_VOID) {
       error_tok(tok, "variable declared void");
     }
+
+    if (attr && attr->is_static) {
+      Obj *var = new_anon_gvar(ty);
+      push_scope(get_ident(ty->name))->var = var;
+      if (equal(tok, "=")) {
+        gvar_initializer(&tok, tok->next, var);
+      }
+      continue;
+    }
+
     Obj *var = new_lvar(get_ident(ty->name), ty);
     if (attr && attr->align) {
       var->align = attr->align;
@@ -1633,6 +1668,11 @@ static Node *cast(Token **rest, Token *tok) {
     Token *start = tok;
     Type *ty = typename(&tok, tok->next);
     tok = skip(tok, ")");
+
+    if (equal(tok, "{")) {
+      return unary(rest, start);
+    }
+
     Node *node = new_cast(cast(rest, tok), ty);
     node->tok = start;
     return node;
@@ -1787,6 +1827,24 @@ static Node *new_inc_dec(Node *node, Token *tok, int addend) {
 
 static Node *postfix(Token **rest, Token *tok) {
 
+  if (equal(tok, "(") && is_typename(tok->next)) {
+    // Compound literal
+    Token *start = tok;
+    Type *ty = typename(&tok, tok->next);
+    tok = skip(tok, ")");
+
+    if (scope->next == NULL) {
+      Obj *var = new_anon_gvar(ty);
+      gvar_initializer(rest, tok, var);
+      return new_variable(var, start);
+    }
+
+    Obj *var = new_lvar("", ty);
+    Node *lhs = lvar_initializer(rest, tok, var);
+    Node *rhs = new_variable(var, tok);
+    return new_binary(ND_COMMA, lhs, rhs, start);
+  }
+
   Node *node = primary(&tok, tok);
 
   for (;;) {
@@ -1931,12 +1989,19 @@ static Node *primary(Token **rest, Token *tok) {
     add_type(node);
     return new_num(node->ty->size, tok);
   }
-  if (equal(tok, "_Alignof")) {
-    tok = skip(tok->next, "(");
-    Type *ty = typename(&tok, tok);
+  if (equal(tok, "_Alignof") && equal(tok->next, "(") &&
+      is_typename(tok->next->next)) {
+    Type *ty = typename(&tok, tok->next->next);
     *rest = skip(tok, ")");
     return new_num(ty->align, tok);
   }
+
+  if (equal(tok, "_Alignof")) {
+    Node *node = unary(rest, tok->next);
+    add_type(node);
+    return new_num(node->ty->align, tok);
+  }
+
   if (tok->kind == TK_STR) {
     Obj *var = new_string_literal(tok->str, tok->ty);
     *rest = tok->next;
@@ -2041,6 +2106,7 @@ static Token *global_variables(Token *tok, Type *basety, VarAttr *attr) {
     Type *ty = declarator(&tok, tok, basety);
     Obj *var = new_gvar(get_ident(ty->name), ty);
     var->is_definition = !attr->is_extern;
+    var->is_static = attr->is_static;
     if (attr->align) {
       var->align = attr->align;
     }

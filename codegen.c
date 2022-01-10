@@ -127,7 +127,8 @@ static void store(Node *lhs, Node *rhs) {
   if (ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
     println("\t\tadd a7, zero, s1");
     for (Member *member = ty->members; member; member = member->next) {
-      println("\t\taddi t2, t0, %d", member->offset);
+      println("\t\tli t2, %d", member->offset);
+      println("\t\tadd t2, t0, t2");
       if (member->ty->size == 1) {
         println("\t\tlb s1, %d(a7)", member->offset);
         println("\t\tsb s1, 0(t2)");
@@ -193,7 +194,8 @@ static void gen_addr(Node *node) {
   switch (node->kind) {
   case ND_VAR:
     if (node->var->is_local) {
-      println("\t\taddi s1, fp, %d", node->var->offset);
+      println("\t\tli s1, %d", node->var->offset);
+      println("\t\tadd s1, fp, s1");
       return;
     } else {
       println("\t\tlui s1, %%hi(%s)", node->var->name);
@@ -202,7 +204,8 @@ static void gen_addr(Node *node) {
     }
   case ND_MEMBER:
     gen_addr(node->rhs);
-    println("\t\taddi s1, s1, %d", node->member->offset);
+    println("\t\tli t2, %d", node->member->offset);
+    println("\t\tadd s1, s1, t2");
     return;
   case ND_COMMA:
     gen_expr(node->lhs);
@@ -359,9 +362,14 @@ static void gen_expr(Node *node) {
       pop(argreg[i]);
     }
 
-    // println("\t\taddi s1, zero, 0");
-    println("\t\tcall %s", node->funcname);
-    println("\t\tadd s1, zero, a0");
+    if (depth % 2 == 0) {
+      println("\t\tcall %s", node->funcname);
+    } else {
+      println("addi sp, sp, -8");
+      println("\t\tcall %s", node->funcname);
+      println("addi sp, sp, 8");
+    }
+    println("\t\tmv s1, a0");
     return;
   }
   }
@@ -483,12 +491,22 @@ static void gen_stmt(Node *node) {
     println("%s:", node->unique_label);
     gen_stmt(node->rhs);
     return;
-
+  case ND_DO: {
+    int c = count();
+    println(".L.begin.%d:", c);
+    gen_stmt(node->then);
+    println("%s:", node->cont_label);
+    gen_expr(node->cond);
+    println("  bnez s1, .L.begin.%d", c);
+    println("%s:", node->brk_label);
+    return;
+  }
   case ND_SWITCH:
     gen_expr(node->cond);
 
     for (Node *n = node->case_next; n; n = n->case_next) {
-      println("\t\taddi t1, s1, -%ld", n->val);
+      println("\t\tli t1, %ld", n->val);
+      println("\t\tsub t1, s1, t1");
       println("\t\tbeqz t1, %s", n->label);
     }
 
@@ -510,7 +528,10 @@ static void gen_stmt(Node *node) {
     }
     return;
   case ND_RETURN:
-    gen_expr(node->rhs);
+    if (node->rhs) {
+      gen_expr(node->rhs);
+    }
+
     println("\t\tjal zero, .L.return.%s", cur_fn->name);
     return;
   case ND_EXPR_STMT:
@@ -554,8 +575,11 @@ static void emit_data(Obj *prog) {
     if (var->is_function || !var->is_definition) {
       continue;
     }
-
-    println("\t\t.globl %s", var->name);
+    if (var->is_static) {
+      println("\t\t.local %s", var->name);
+    } else {
+      println("\t\t.globl %s", var->name);
+    }
     Token *tok = var->ty->name;
     if (tok && var->align > 1) {
       int align = find_pow2(tok, var->align);
@@ -612,7 +636,8 @@ void emit_text(Obj *prog) {
     println("\t\tsd ra, -8(sp)");
     println("\t\tsd fp, -16(sp)");
     println("\t\taddi fp, sp, 0");
-    println("\t\taddi sp, sp, -%d", fn->stack_size);
+    println("\t\tli t1, %d", fn->stack_size);
+    println("\t\tsub sp, sp, t1");
 
     int i = 0;
     for (Obj *var = fn->params; var; var = var->next) {
@@ -632,7 +657,8 @@ void emit_text(Obj *prog) {
 
     println(".L.return.%s:", fn->name);
     println("\t\tadd a0, zero, s1");
-    println("\t\taddi sp, sp, %d", fn->stack_size);
+    println("\t\tli t1, %d", fn->stack_size);
+    println("\t\tadd sp, sp, t1");
     println("\t\tld ra, -8(sp)");
     println("\t\tld fp, -16(sp)");
     println("\t\tjr ra");

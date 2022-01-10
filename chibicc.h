@@ -95,6 +95,7 @@ typedef enum {
   ND_COMMA,
   ND_DEREF,
   ND_DIV,
+  ND_DO,
   ND_EQ,
   ND_SHL,
   ND_SHR,
