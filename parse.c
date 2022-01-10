@@ -2098,7 +2098,7 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   fn->params = locals;
   if (ty->is_variadic) {
 
-    fn->va_area = new_lvar("__va_area__", array_of(ty_char, 136));
+    fn->va_area = new_lvar("__va_area__", array_of(ty_long, 8));
   }
 
   tok = skip(tok, "{");

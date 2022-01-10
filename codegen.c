@@ -668,26 +668,10 @@ void emit_text(Obj *prog) {
       }
       int offset = fn->va_area->offset;
 
-      //   int gp_offset;
-      //   int fp_offset;
-      //   void *overflow_arg_area;
-      //   void *reg_save_area;
-      println("\t\tli s1, %d", np);
-      println("\t\tsw s1, %d(sp)", offset);
-      println("\t\tsw zero, %d(sp)", offset + 4);
-      println("\t\tsd sp, %d(sp)", offset + 8);
-      println("\t\tmv s1, sp");
-      println("\t\tadd s1, s1, %d", offset + 24);
-      println("\t\tsd s1, %d(sp)", offset + 16);
-
-      println("\t\tsd a0, %d(sp)", offset + 24);
-      println("\t\tsd a1, %d(sp)", offset + 32);
-      println("\t\tsd a2, %d(sp)", offset + 40);
-      println("\t\tsd a3, %d(sp)", offset + 48);
-      println("\t\tsd a4, %d(sp)", offset + 56);
-      println("\t\tsd a5, %d(sp)", offset + 64);
-      println("\t\tsd a6, %d(sp)", offset + 72);
-      println("\t\tsd a7, %d(sp)", offset + 80);
+      for (int i = np; i < 8; i++) {
+        println("\t\tsd a%d, %d(fp)", i, offset);
+        offset += 8;
+      }
     }
 
     int i = 0;
