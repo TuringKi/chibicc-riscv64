@@ -137,7 +137,34 @@ int main() {
            char x[(int *)16 - (int *)4];
            sizeof(x);
          }));
-
+  ASSERT(255, ({
+           char x[(unsigned char)0xffffffff];
+           sizeof(x);
+         }));
+  ASSERT(0x800f, ({
+           char x[(unsigned short)0xffff800f];
+           sizeof(x);
+         }));
+  ASSERT(1, ({
+           char x[(unsigned int)0xfffffffffff >> 31];
+           sizeof(x);
+         }));
+  ASSERT(1, ({
+           char x[(long)-1 / ((long)1 << 62) + 1];
+           sizeof(x);
+         }));
+  ASSERT(4, ({
+           char x[(unsigned long)-1 / ((long)1 << 62) + 1];
+           sizeof(x);
+         }));
+  ASSERT(1, ({
+           char x[(unsigned)1 < -1];
+           sizeof(x);
+         }));
+  ASSERT(1, ({
+           char x[(unsigned)1 <= -1];
+           sizeof(x);
+         }));
   printf("OK\n");
   return 0;
 }

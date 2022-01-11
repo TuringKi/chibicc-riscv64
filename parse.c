@@ -200,6 +200,13 @@ static Node *new_long(int64_t val, Token *tok) {
   return node;
 }
 
+static Node *new_ulong(long val, Token *tok) {
+  Node *node = new_node(ND_NUM, tok);
+  node->val = val;
+  node->ty = ty_ulong;
+  return node;
+}
+
 static Obj *new_var(char *name, Type *ty) {
   Obj *var = calloc(1, sizeof(Obj));
   var->name = name;
@@ -316,6 +323,13 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr) {
         error_tok(tok, "typedef may not be used with static or extern");
       }
       tok = tok->next;
+      continue;
+    }
+
+    if (consume(&tok, tok, "const") || consume(&tok, tok, "volatile") ||
+        consume(&tok, tok, "auto") || consume(&tok, tok, "register") ||
+        consume(&tok, tok, "restrict") || consume(&tok, tok, "__restrict") ||
+        consume(&tok, tok, "__restrict__") || consume(&tok, tok, "_Noreturn")) {
       continue;
     }
 
@@ -506,6 +520,11 @@ static long get_number(Token *tok) {
 }
 
 static Type *array_dimensions(Token **rest, Token *tok, Type *ty) {
+
+  while (equal(tok, "static") || equal(tok, "restrict")) {
+    tok = tok->next;
+  }
+
   if (equal(tok, "]")) {
     ty = type_suffix(rest, tok->next, ty);
     return array_of(ty, -1);
@@ -530,10 +549,20 @@ static Type *type_suffix(Token **rest, Token *tok, Type *ty) {
   return ty;
 }
 
-static Type *declarator(Token **rest, Token *tok, Type *ty) {
+static Type *pointers(Token **rest, Token *tok, Type *ty) {
   while (consume(&tok, tok, "*")) {
     ty = pointer_to(ty);
+    while (equal(tok, "const") || equal(tok, "volatile") ||
+           equal(tok, "restrict") || equal(tok, "__restrict") ||
+           equal(tok, "__restrict__"))
+      tok = tok->next;
   }
+  *rest = tok;
+  return ty;
+}
+
+static Type *declarator(Token **rest, Token *tok, Type *ty) {
+  ty = pointers(&tok, tok, ty);
 
   if (equal(tok, "(")) {
     Token *start = tok;
@@ -544,11 +573,17 @@ static Type *declarator(Token **rest, Token *tok, Type *ty) {
     return declarator(&tok, start->next, ty);
   }
 
-  if (tok->kind != TK_IDENT) {
-    error_tok(tok, "expected a variable name");
+  Token *name = NULL;
+  Token *name_pos = tok;
+
+  if (tok->kind == TK_IDENT) {
+    name = tok;
+    tok = tok->next;
   }
-  ty = type_suffix(rest, tok->next, ty);
-  ty->name = tok;
+
+  ty = type_suffix(rest, tok, ty);
+  ty->name = name;
+  ty->name_pos = name_pos;
   return ty;
 }
 
@@ -642,9 +677,13 @@ static void gvar_initializer(Token **rest, Token *tok, Obj *var) {
 }
 
 static bool is_typename(Token *tok) {
-  static char *kw[] = {"void",   "char",   "short",    "int",    "long",
-                       "struct", "union",  "typedef",  "_Bool",  "enum",
-                       "static", "extern", "_Alignas", "signed", "unsigned"};
+  static char *kw[] = {
+      "void",       "char",         "short",     "int",      "long",
+      "struct",     "union",        "typedef",   "_Bool",    "enum",
+      "static",     "extern",       "_Alignas",  "signed",   "unsigned",
+      "const",      "volatile",     "auto",      "register", "restrict",
+      "__restrict", "__restrict__", "_Noreturn",
+  };
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (equal(tok, kw[i])) {
@@ -911,10 +950,16 @@ static int64_t eval2(Node *node, char **label) {
   case ND_MUL:
     return eval(node->lhs) * eval(node->rhs);
   case ND_DIV:
+    if (node->ty->is_unsigned) {
+      return (uint64_t)eval(node->lhs) / eval(node->rhs);
+    }
     return eval(node->lhs) / eval(node->rhs);
   case ND_NEG:
     return -eval(node->rhs);
   case ND_MOD:
+    if (node->ty->is_unsigned) {
+      return (uint64_t)eval(node->lhs) % eval(node->rhs);
+    }
     return eval(node->lhs) % eval(node->rhs);
   case ND_BITAND:
     return eval(node->lhs) & eval(node->rhs);
@@ -925,14 +970,25 @@ static int64_t eval2(Node *node, char **label) {
   case ND_SHL:
     return eval(node->lhs) << eval(node->rhs);
   case ND_SHR:
+    if (node->ty->is_unsigned && node->ty->size == 8) {
+      return (uint64_t)eval(node->lhs) >> eval(node->rhs);
+    }
     return eval(node->lhs) >> eval(node->rhs);
   case ND_EQ:
     return eval(node->lhs) == eval(node->rhs);
   case ND_NE:
     return eval(node->lhs) != eval(node->rhs);
   case ND_LT:
+    if (node->lhs->ty->is_unsigned) {
+      return (uint64_t)eval(node->lhs) < eval(node->rhs);
+    }
+
     return eval(node->lhs) < eval(node->rhs);
   case ND_LE:
+    if (node->lhs->ty->is_unsigned) {
+      return (uint64_t)eval(node->lhs) <= eval(node->rhs);
+    }
+
     return eval(node->lhs) <= eval(node->rhs);
   case ND_COND:
     return eval(node->cond) ? eval2(node->then, label)
@@ -952,11 +1008,11 @@ static int64_t eval2(Node *node, char **label) {
     if (is_integer(node->ty)) {
       switch (node->ty->size) {
       case 1:
-        return (uint8_t)val;
+        return node->ty->is_unsigned ? (uint8_t)val : (int8_t)val;
       case 2:
-        return (uint16_t)val;
+        return node->ty->is_unsigned ? (uint16_t)val : (int16_t)val;
       case 4:
-        return (uint32_t)val;
+        return node->ty->is_unsigned ? (uint32_t)val : (int32_t)val;
       }
     }
     return val;
@@ -1010,10 +1066,7 @@ static int64_t const_expr(Token **rest, Token *tok) {
 }
 
 static Type *abstract_declarator(Token **rest, Token *tok, Type *ty) {
-  while (equal(tok, "*")) {
-    ty = pointer_to(ty);
-    tok = tok->next;
-  }
+  ty = pointers(&tok, tok, ty);
 
   if (equal(tok, "(")) {
     Token *start = tok;
@@ -1655,7 +1708,7 @@ static Node *new_sub(Node *lhs, Node *rhs, Token *tok) {
 
   if (lhs->ty->base && rhs->ty->base) {
     Node *node = new_binary(ND_SUB, lhs, rhs, tok);
-    node->ty = ty_int;
+    node->ty = ty_long;
     return new_binary(ND_DIV, node, new_num(lhs->ty->base->size, tok), tok);
   }
 
@@ -2035,25 +2088,25 @@ static Node *primary(Token **rest, Token *tok) {
       is_typename(tok->next->next)) {
     Type *ty = typename(&tok, tok->next->next);
     *rest = skip(tok, ")");
-    return new_num(ty->size, start);
+    return new_ulong(ty->size, start);
   }
 
   if (equal(tok, "sizeof")) {
     Node *node = unary(rest, tok->next);
     add_type(node);
-    return new_num(node->ty->size, tok);
+    return new_ulong(node->ty->size, tok);
   }
   if (equal(tok, "_Alignof") && equal(tok->next, "(") &&
       is_typename(tok->next->next)) {
     Type *ty = typename(&tok, tok->next->next);
     *rest = skip(tok, ")");
-    return new_num(ty->align, tok);
+    return new_ulong(ty->align, tok);
   }
 
   if (equal(tok, "_Alignof")) {
     Node *node = unary(rest, tok->next);
     add_type(node);
-    return new_num(node->ty->align, tok);
+    return new_ulong(node->ty->align, tok);
   }
 
   if (tok->kind == TK_STR) {
@@ -2087,6 +2140,7 @@ static Node *primary(Token **rest, Token *tok) {
 
   if (tok->kind == TK_NUM) {
     Node *node = new_num(tok->val, tok);
+    node->ty = tok->ty;
     *rest = tok->next;
     return node;
   }

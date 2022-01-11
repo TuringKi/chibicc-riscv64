@@ -9,3 +9,5 @@ int memcmp(char *p, char *q, long n);
   do {                                                                         \
     ap = __va_area__;                                                          \
   } while (0)
+
+void exit(int n);

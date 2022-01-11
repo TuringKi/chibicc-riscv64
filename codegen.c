@@ -280,31 +280,30 @@ static void gen_expr(Node *node) {
   case ND_MEMZERO: {
     int cnt_of_int64 = node->var->ty->size / 8;
     int rem64 = node->var->ty->size % 8;
+
+    println("\t\tli t1, %d", node->var->offset);
+    println("\t\tadd t1, t1, fp");
     for (int i = 0; i < cnt_of_int64; i++) {
-      println("\t\tsd zero, %d(fp)", node->var->offset + i * 8);
+      println("\t\tsd zero, %d(t1)", i * 8);
     }
     if (rem64 >= 4) {
-      println("\t\tsw zero, %d(fp)", node->var->offset + cnt_of_int64 * 8);
+      println("\t\tsw zero, %d(t1)", cnt_of_int64 * 8);
       int rem32 = (rem64 - 4) % 4;
       if (rem32 >= 2) {
-        println("\t\tsh zero, %d(fp)",
-                node->var->offset + cnt_of_int64 * 8 + 4);
+        println("\t\tsh zero, %d(t1)", cnt_of_int64 * 8 + 4);
         if (rem32 == 3) {
-          println("\t\tsb zero, %d(fp)",
-                  node->var->offset + cnt_of_int64 * 8 + 6);
+          println("\t\tsb zero, %d(t1)", cnt_of_int64 * 8 + 6);
         }
       } else if (rem32 == 1) {
-        println("\t\tsb zero, %d(fp)",
-                node->var->offset + cnt_of_int64 * 8 + 4);
+        println("\t\tsb zero, %d(t1)", cnt_of_int64 * 8 + 4);
       }
     } else {
       if (rem64 >= 2) {
-        println("\t\tsh zero, %d(fp)", node->var->offset + cnt_of_int64 * 8);
+        println("\t\tsh zero, %d(t1)", cnt_of_int64 * 8);
       }
       int rem16 = (rem64 - 2) % 2;
       for (int i = 0; i < rem16; i++) {
-        println("\t\tsb zero, %d(fp)",
-                node->var->offset + cnt_of_int64 * 8 + 2 + i);
+        println("\t\tsb zero, %d(t1)", cnt_of_int64 * 8 + 2 + i);
       }
     }
   }
@@ -764,8 +763,11 @@ void emit_text(Obj *prog) {
       }
       int offset = fn->va_area->offset;
 
+      println("\t\tli t1, %d", offset);
+      println("\t\tadd t1, t1, fp");
+      offset = 0;
       for (int i = np; i < 8; i++) {
-        println("\t\tsd a%d, %d(fp)", i, offset);
+        println("\t\tsd a%d, %d(t1)", i, offset);
         offset += 8;
       }
     }

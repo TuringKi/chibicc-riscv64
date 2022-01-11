@@ -39,6 +39,7 @@ Type *copy_type(Type *ty) {
 Type *pointer_to(Type *base) {
   Type *ty = new_type(TY_PTR, 8, 8);
   ty->base = base;
+  ty->is_unsigned = true;
   return ty;
 }
 
@@ -163,7 +164,7 @@ void add_type(Node *node) {
     node->ty = ty_int;
     return;
   case ND_NUM:
-    node->ty = (node->val == (int)node->val) ? ty_int : ty_long;
+    node->ty = ty_int;
     return;
   case ND_FUNCCAL:
     node->ty = ty_long;

@@ -188,6 +188,7 @@ struct Type {
 
   Type *base;
   Token *name;
+  Token *name_pos;
   int array_len;
   bool is_flexible;
   bool is_variadic;
