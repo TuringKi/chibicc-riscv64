@@ -184,6 +184,7 @@ struct Type {
   TypeKind kind;
   int size;
   int align;
+  bool is_unsigned;
 
   Type *base;
   Token *name;
@@ -210,6 +211,11 @@ extern Type *ty_int;
 extern Type *ty_short;
 extern Type *ty_char;
 extern Type *ty_long;
+
+extern Type *ty_uchar;
+extern Type *ty_ushort;
+extern Type *ty_uint;
+extern Type *ty_ulong;
 
 bool is_integer(Type *ty);
 Type *pointer_to(Type *base);

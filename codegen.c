@@ -17,18 +17,18 @@ static void println(char *fmt, ...) {
   fprintf(output_file, "\n");
 }
 
-enum { I8, I16, I32, I64 };
+enum { I8, I16, I32, I64, U8, U16, U32, U64 };
 
-static int getTypeId(TypeKind ty) {
+static int getTypeId(TypeKind ty, bool is_unsigned) {
   switch (ty) {
   case TY_CHAR:
-    return I8;
+    return is_unsigned ? U8 : I8;
   case TY_SHORT:
-    return I16;
+    return is_unsigned ? U16 : I16;
   case TY_INT:
-    return I32;
+    return is_unsigned ? U32 : I32;
   }
-  return I64;
+  return is_unsigned ? U64 : I64;
 }
 
 static void cmp_zero() { println("\t\tsnez s1, s1"); }
@@ -36,22 +36,28 @@ static void cmp_zero() { println("\t\tsnez s1, s1"); }
 static char i32i8[] = "\t\tlb s1, 0(%s)";
 static char i32i16[] = "\t\tlh s1, 0(%s)";
 static char i32i64[] = "\t\tld s1, 0(%s)";
+static char i32u8[] = "\t\tlbu s1, 0(%s)";
+static char i32u16[] = "\t\tlhu s1, 0(%s)";
 static char *cast_table[][10] = {
-    {NULL, NULL, NULL, i32i64},    // i8
-    {i32i8, NULL, NULL, i32i64},   // i16
-    {i32i8, i32i16, NULL, i32i64}, // i32
-    {i32i8, i32i16, NULL, NULL},   // i64
+    {NULL, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64},    // i8
+    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64},   // i16
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64}, // i32
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL},     // i64
+    {i32i8, NULL, NULL, i32i64, NULL, NULL, NULL, i32i64},      // u8
+    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, NULL, i32i64},   // u16
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64}, // u32
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL},     // u64
 };
-static void cast(TypeKind from, TypeKind to, char *r) {
-  if (to == TY_VOID) {
+static void cast(Type *from, Type *to, char *r) {
+  if (to->kind == TY_VOID) {
     return;
   }
-  if (to == TY_BOOL) {
+  if (to->kind == TY_BOOL) {
     cmp_zero();
     return;
   }
-  int t1 = getTypeId(from);
-  int t2 = getTypeId(to);
+  int t1 = getTypeId(from->kind, from->is_unsigned);
+  int t2 = getTypeId(to->kind, to->is_unsigned);
   if (cast_table[t1][t2]) {
     println(cast_table[t1][t2], r);
   }
@@ -81,10 +87,18 @@ static void load(Node *node) {
   }
   if (!node->var) {
     if (ty->size == 1) {
-      println("\t\tlb s1, 0(s1)");
+      if (ty->is_unsigned) {
+        println("\t\tlbu s1, 0(s1)");
+      } else {
+        println("\t\tlb s1, 0(s1)");
+      }
       return;
     } else if (ty->size == 2) {
-      println("\t\tlh s1, 0(s1)");
+      if (ty->is_unsigned) {
+        println("\t\tlhu s1, 0(s1)");
+      } else {
+        println("\t\tlh s1, 0(s1)");
+      }
       return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, 0(s1)");
@@ -95,10 +109,18 @@ static void load(Node *node) {
   }
   if (node->var->is_local) {
     if (ty->size == 1) {
-      println("\t\tlb s1, 0(s1)");
+      if (ty->is_unsigned) {
+        println("\t\tlbu s1, 0(s1)");
+      } else {
+        println("\t\tlb s1, 0(s1)");
+      }
       return;
     } else if (ty->size == 2) {
-      println("\t\tlh s1, 0(s1)");
+      if (ty->is_unsigned) {
+        println("\t\tlhu s1, 0(s1)");
+      } else {
+        println("\t\tlh s1, 0(s1)");
+      }
       return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, 0(s1)");
@@ -107,10 +129,18 @@ static void load(Node *node) {
     println("\t\tld s1, 0(s1)");
   } else {
     if (ty->size == 1) {
-      println("\t\tlb s1, %%lo(%s)(s1)", node->var->name);
+      if (ty->is_unsigned) {
+        println("\t\tlbu s1, %%lo(%s)(s1)", node->var->name);
+      } else {
+        println("\t\tlb s1, %%lo(%s)(s1)", node->var->name);
+      }
       return;
     } else if (ty->size == 2) {
-      println("\t\tlh s1, %%lo(%s)(s1)", node->var->name);
+      if (ty->is_unsigned) {
+        println("\t\tlhu s1, %%lo(%s)(s1)", node->var->name);
+      } else {
+        println("\t\tlh s1, %%lo(%s)(s1)", node->var->name);
+      }
       return;
     } else if (ty->size == 4) {
       println("\t\tlw s1, %%lo(%s)(s1)", node->var->name);
@@ -130,10 +160,20 @@ static void store(Node *lhs, Node *rhs) {
       println("\t\tli t2, %d", member->offset);
       println("\t\tadd t2, t0, t2");
       if (member->ty->size == 1) {
-        println("\t\tlb s1, %d(a7)", member->offset);
+        if (member->ty->is_unsigned) {
+          println("\t\tlbu s1, %d(a7)", member->offset);
+        } else {
+          println("\t\tlb s1, %d(a7)", member->offset);
+        }
         println("\t\tsb s1, 0(t2)");
       } else if (member->ty->size == 2) {
-        println("\t\tlh s1, %d(a7)", member->offset);
+
+        if (member->ty->is_unsigned) {
+          println("\t\tlhu s1, %d(a7)", member->offset);
+        } else {
+          println("\t\tlh s1, %d(a7)", member->offset);
+        }
+
         println("\t\tsh s1, 0(t2)");
       } else if (member->ty->size == 4) {
         println("\t\tlw s1, %d(a7)", member->offset);
@@ -275,7 +315,7 @@ static void gen_expr(Node *node) {
 
     println("\t\tsd s1, 0(sp)");
 
-    cast(node->rhs->ty->kind, node->ty->kind, "sp");
+    cast(node->rhs->ty, node->ty, "sp");
     println("\t\taddi sp,sp,8");
   }
     return;
@@ -378,10 +418,18 @@ static void gen_expr(Node *node) {
       println("\t\tsnez s1, a0");
       break;
     case TY_CHAR:
-      println("\t\tlb s1, 0(sp)");
+      if (node->ty->is_unsigned) {
+        println("\t\tlbu s1, 0(sp)");
+      } else {
+        println("\t\tlb s1, 0(sp)");
+      }
       break;
     case TY_SHORT:
-      println("\t\tlh s1, 0(sp)");
+      if (node->ty->is_unsigned) {
+        println("\t\tlhu s1, 0(sp)");
+      } else {
+        println("\t\tlh s1, 0(sp)");
+      }
       break;
     case TY_INT:
       println("\t\tlw s1, 0(sp)");
@@ -411,16 +459,30 @@ static void gen_expr(Node *node) {
     println("\t\tsltu s1, zero, t1");
     return;
   case ND_LE:
-    println("\t\tsub t1, s1, t0");
-    println("\t\tslt s1, zero, t1");
+    // println("\t\tsub t1, s1, t0");
+    if (node->lhs->ty->is_unsigned) {
+      println("\t\tsgtu s1, s1, t0");
+    } else {
+      println("\t\tsgt s1, s1, t0");
+    }
+
     println("\t\txori s1, s1, 1");
     println("\t\tandi s1, s1, 0xff");
     return;
   case ND_MOD:
     if (node->lhs->ty->size == 8) {
-      println("\t\trem s1, s1, t0");
+      if (node->lhs->ty->is_unsigned) {
+        println("\t\tremu s1, s1, t0");
+      } else {
+        println("\t\trem s1, s1, t0");
+      }
+
     } else {
-      println("\t\tremw s1, s1, t0");
+      if (node->lhs->ty->is_unsigned) {
+        println("\t\tremuw s1, s1, t0");
+      } else {
+        println("\t\tremw s1, s1, t0");
+      }
     }
     return;
   case ND_BITAND:
@@ -433,8 +495,12 @@ static void gen_expr(Node *node) {
     println("\t\txor s1, s1, t0");
     return;
   case ND_LT:
-    println("\t\tsub t1, t0, s1");
-    println("\t\tslt s1, zero, t1");
+    // println("\t\tsub t1, t0, s1");
+    if (node->lhs->ty->is_unsigned) {
+      println("\t\tsgtu s1, t0, s1");
+    } else {
+      println("\t\tsgt s1, t0, s1");
+    }
     return;
   case ND_ADD:
     println("\t\tadd s1, s1, t0");
@@ -443,25 +509,55 @@ static void gen_expr(Node *node) {
     println("\t\tsub s1, s1, t0");
     return;
   case ND_MUL:
-    println("\t\tmulw s1, s1, t0");
+    if (node->ty->size == 8) {
+      println("\t\tmul s1, s1, t0");
+    } else {
+      println("\t\tmulw s1, s1, t0");
+    }
+
     return;
   case ND_DIV:
-    println("\t\tdivw s1, s1, t0");
+    if (node->ty->size == 8) {
+      if (node->ty->is_unsigned) {
+        println("\t\tdivu s1, s1, t0");
+      } else {
+        println("\t\tdiv s1, s1, t0");
+      }
+
+    } else {
+      if (node->ty->is_unsigned) {
+        println("\t\tdivuw s1, s1, t0");
+      } else {
+        println("\t\tdivw s1, s1, t0");
+      }
+    }
+
     return;
   case ND_SHL:
     if (node->ty->size == 8) {
+
       println("\t\tsll s1, s1, t0");
 
     } else {
+
       println("\t\tsllw s1, s1, t0");
     }
     return;
   case ND_SHR:
+
     if (node->ty->size == 8) {
-      println("\t\tsraw s1, s1, t0");
+      if (node->ty->is_unsigned) {
+        println("\t\tsrl s1, s1, t0");
+      } else {
+        println("\t\tsra s1, s1, t0");
+      }
 
     } else {
-      println("\t\tsra s1, s1, t0");
+      if (node->ty->is_unsigned) {
+        println("\t\tsrlw s1, s1, t0");
+      } else {
+        println("\t\tsraw s1, s1, t0");
+      }
     }
 
     return;
