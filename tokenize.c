@@ -168,11 +168,6 @@ static Token *read_int_literal(char *start) {
     u = true;
   }
 
-  if (isalnum(*p)) {
-    error_at(p, "invalid digit");
-  }
-
-  // Infer a type.
   Type *ty;
   if (base == 10) {
     if (l && u)
@@ -202,6 +197,33 @@ static Token *read_int_literal(char *start) {
 
   Token *tok = new_token(TK_NUM, start, p);
   tok->val = val;
+  tok->ty = ty;
+  return tok;
+}
+
+static Token *read_number(char *start) {
+
+  Token *tok = read_int_literal(start);
+  if (!strchr(".eEfF", start[tok->len])) {
+    return tok;
+  }
+
+  char *end;
+  double val = strtod(start, &end);
+
+  Type *ty;
+  if (*end == 'f' || *end == 'F') {
+    ty = ty_float;
+    end++;
+  } else if (*end == 'l' || *end == 'L') {
+    ty = ty_double;
+    end++;
+  } else {
+    ty = ty_double;
+  }
+
+  tok = new_token(TK_NUM, start, end);
+  tok->fval = val;
   tok->ty = ty;
   return tok;
 }
@@ -396,8 +418,9 @@ Token *tokenize(char *filename, char *p) {
       p += cur->len;
       continue;
     }
-    if (isdigit(*p)) {
-      cur = cur->next = read_int_literal(p);
+
+    if (isdigit(*p) || (*p == '.' && isdigit(p[1]))) {
+      cur = cur->next = read_number(p);
       p += cur->len;
       continue;
     }

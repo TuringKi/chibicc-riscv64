@@ -277,6 +277,10 @@ static char *get_ident(Token *tok) {
 static void create_param_lvars(Type *param) {
   if (param) {
     create_param_lvars(param->next);
+    if (!param->name) {
+      error_tok(param->name_pos, "parameter name omitted");
+    }
+
     new_lvar(get_ident(param->name), param);
   }
 }
@@ -1100,6 +1104,9 @@ static Node *declaration(Token **rest, Token *tok, Type *basety,
 
     if (ty->kind == TY_VOID) {
       error_tok(tok, "variable declared void");
+    }
+    if (!ty->name) {
+      error_tok(ty->name_pos, "variable name omitted");
     }
 
     if (attr && attr->is_static) {
@@ -2139,7 +2146,13 @@ static Node *primary(Token **rest, Token *tok) {
   }
 
   if (tok->kind == TK_NUM) {
-    Node *node = new_num(tok->val, tok);
+    Node *node;
+    if (is_flonum(tok->ty)) {
+      node = new_node(ND_NUM, tok);
+      node->fval = tok->fval;
+    } else {
+      node = new_num(tok->val, tok);
+    }
     node->ty = tok->ty;
     *rest = tok->next;
     return node;
@@ -2158,6 +2171,10 @@ static Token *parse_typedef(Token *tok, Type *basety) {
     first = false;
 
     Type *ty = declarator(&tok, tok, basety);
+    if (!ty->name) {
+      error_tok(ty->name_pos, "typedef name omitted");
+    }
+
     push_scope(get_ident(ty->name))->type_def = ty;
   }
   return tok;
@@ -2181,6 +2198,9 @@ static void resolve_goto_labels(void) {
 
 static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   Type *ty = declarator(&tok, tok, basety);
+  if (!ty->name) {
+    error_tok(ty->name_pos, "function name omitted");
+  }
 
   locals = NULL;
 
@@ -2216,6 +2236,10 @@ static Token *global_variables(Token *tok, Type *basety, VarAttr *attr) {
     }
     first = false;
     Type *ty = declarator(&tok, tok, basety);
+    if (!ty->name) {
+      error_tok(ty->name_pos, "variable name omitted");
+    }
+
     Obj *var = new_gvar(get_ident(ty->name), ty);
     var->is_definition = !attr->is_extern;
     var->is_static = attr->is_static;

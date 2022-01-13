@@ -1,10 +1,18 @@
 #include "chibicc.h"
+#include <stdlib.h>
 
 static FILE *output_file;
 static int depth;
 static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5"};
 static Obj *cur_fn;
-
+typedef struct ConstVal ConstVal;
+struct ConstVal {
+  int idx;
+  double fval;
+  TypeKind kind;
+  ConstVal *next;
+};
+static ConstVal *cur_const_val;
 static void gen_expr();
 static void gen_stmt();
 static void gen_addr(Node *node);
@@ -259,6 +267,15 @@ static void gen_addr(Node *node) {
   error_tok(node->tok, "not an lvalue");
 }
 
+static ConstVal *create_constval(double fval, TypeKind kind) {
+  ConstVal *cval = calloc(1, sizeof(ConstVal));
+  cval->idx = count();
+  cval->fval = fval;
+  cval->kind = kind;
+  cval->next = NULL;
+  cur_const_val = cur_const_val->next = cval;
+  return cur_const_val;
+}
 static void gen_expr(Node *node) {
   println("\t\t.loc 1 %d", node->tok->line_no);
 
@@ -269,9 +286,27 @@ static void gen_expr(Node *node) {
     gen_expr(node->rhs);
     println("\t\tsub s1, zero, s1");
     return;
-  case ND_NUM:
+  case ND_NUM: {
+
+    switch (node->ty->kind) {
+    case TY_FLOAT: {
+      ConstVal *cval = create_constval(node->fval, TY_FLOAT);
+      println("\t\tlui t1, %%hi(.LC%d)", cval->idx);
+      println("\t\tflw fs0, %%lo(.LC%d)(t1)", cval->idx);
+      return;
+    }
+    case TY_DOUBLE: {
+      ConstVal *cval = create_constval(node->fval, TY_DOUBLE);
+      println("\t\tlui t1, %%hi(.LC%d)", cval->idx);
+      println("\t\tfld fs0, %%lo(.LC%d)(t1)", cval->idx);
+      return;
+    }
+    }
+
     println("\t\tli s1, %ld", node->val);
     return;
+  }
+
   case ND_COMMA:
     gen_expr(node->lhs);
     gen_expr(node->rhs);
@@ -674,6 +709,11 @@ static void assign_lvar_offsets(Obj *prog) {
   }
 }
 
+static void emit_const(Obj *prog) {
+  for (Obj *fn = prog; fn; fn = fn->next) {
+  }
+}
+
 static int find_pow2(Token *tok, int val) {
 
   long p2 = 1;
@@ -685,7 +725,22 @@ static int find_pow2(Token *tok, int val) {
   error_tok(tok, "requested alignment '%d' is not a positive power of 2", val);
   return -1;
 }
+static void emit_constval(ConstVal *begin) {
+  for (ConstVal *cval = begin; cval; cval = cval->next) {
 
+    switch (cval->kind) {
+    case TY_FLOAT:
+      println(".LC%d:", cval->idx);
+      float v = (float)cval->fval;
+      println("\t\t.word\t%d", *(int *)(&v));
+      break;
+    case TY_DOUBLE:
+      println(".LC%d:", cval->idx);
+      println("\t\t.quad\t%ld", *(long *)(&cval->fval));
+      break;
+    }
+  }
+}
 static void emit_data(Obj *prog) {
 
   for (Obj *var = prog; var; var = var->next) {
@@ -799,8 +854,11 @@ void emit_text(Obj *prog) {
 }
 
 void codegen(Obj *prog, FILE *out) {
+  ConstVal cval = {};
+  cur_const_val = &cval;
   output_file = out;
   assign_lvar_offsets(prog);
   emit_data(prog);
   emit_text(prog);
+  emit_constval(&cval);
 }
