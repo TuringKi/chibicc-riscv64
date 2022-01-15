@@ -160,6 +160,18 @@ static void pop(char *arg) {
   depth--;
 }
 
+static void pushf(void) {
+  println("\t\taddi sp,sp,-8");
+  println("\t\tfsd fs1, 0(sp)");
+  depth++;
+}
+
+static void popf(char *arg) {
+  println("\t\tfld %s, 0(sp)", arg);
+  println("\t\taddi sp,sp,8");
+  depth--;
+}
+
 static void load(Node *node) {
   Type *ty = node->ty;
   if (ty->kind == TY_ARRAY || ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
@@ -415,7 +427,16 @@ static void gen_expr(Node *node) {
     return;
   case ND_NEG:
     gen_expr(node->rhs);
-    println("\t\tsub s1, zero, s1");
+    if (node->ty->kind == TY_DOUBLE) {
+      println("\t\tfneg.d fs1, fs1");
+    } else if (node->ty->kind == TY_FLOAT) {
+      println("\t\tfneg.s fs1, fs1");
+    } else if (node->ty->kind == TY_LONG) {
+      println("\t\tneg s1, s1");
+    } else {
+      println("\t\tnegw s1, s1");
+    }
+
     return;
   case ND_NUM: {
 
@@ -612,6 +633,45 @@ static void gen_expr(Node *node) {
     println("\t\taddi sp,sp,8");
     return;
   }
+  }
+
+  if (is_flonum(node->lhs->ty)) {
+    gen_expr(node->rhs);
+    pushf();
+    gen_expr(node->lhs);
+    popf("ft0");
+
+    char *sz = (node->lhs->ty->kind == TY_FLOAT) ? "s" : "d";
+
+    switch (node->kind) {
+    case ND_EQ:
+      println("\t\tfeq.%s s1, fs1, ft0", sz);
+      return;
+    case ND_NE:
+      println("\t\tfeq.%s s1, fs1, ft0", sz);
+      println("\t\tseqz s1, s1");
+      return;
+    case ND_LT:
+      println("\t\tflt.%s s1, fs1, ft0", sz);
+      return;
+    case ND_LE:
+      println("\t\tfle.%s s1, fs1, ft0", sz);
+      return;
+    case ND_ADD:
+      println("\t\tfadd.%s fs1, fs1, ft0", sz);
+      return;
+    case ND_SUB:
+      println("\t\tfsub.%s fs1, fs1, ft0", sz);
+      return;
+    case ND_MUL:
+      println("\t\tfmul.%s fs1, fs1, ft0", sz);
+      return;
+    case ND_DIV:
+      println("\t\tfdiv.%s fs1, fs1, ft0", sz);
+      return;
+    }
+
+    error_tok(node->tok, "invalid expression");
   }
 
   gen_expr(node->rhs);
