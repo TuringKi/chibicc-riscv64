@@ -25,7 +25,7 @@ static void println(char *fmt, ...) {
   fprintf(output_file, "\n");
 }
 
-enum { I8, I16, I32, I64, U8, U16, U32, U64 };
+enum { I8, I16, I32, I64, U8, U16, U32, U64, F32, F64 };
 
 static int getTypeId(TypeKind ty, bool is_unsigned) {
   switch (ty) {
@@ -35,28 +35,100 @@ static int getTypeId(TypeKind ty, bool is_unsigned) {
     return is_unsigned ? U16 : I16;
   case TY_INT:
     return is_unsigned ? U32 : I32;
+  case TY_LONG:
+    return is_unsigned ? U64 : I64;
+  case TY_FLOAT:
+    return F32;
+  case TY_DOUBLE:
+    return F64;
   }
-  return is_unsigned ? U64 : I64;
+  return U64;
 }
 
 static void cmp_zero() { println("\t\tsnez s1, s1"); }
 
-static char i32i8[] = "\t\tlb s1, 0(%s)";
-static char i32i16[] = "\t\tlh s1, 0(%s)";
-static char i32i64[] = "\t\tld s1, 0(%s)";
-static char i32u8[] = "\t\tlbu s1, 0(%s)";
-static char i32u16[] = "\t\tlhu s1, 0(%s)";
+static char i32i8[] = "\t\tlb s1, 0(sp)";
+static char i32i16[] = "\t\tlh s1, 0(sp)";
+static char i32i64[] = "\t\tld s1, 0(sp)";
+static char i32u8[] = "\t\tlbu s1, 0(sp)";
+
+static char i32f32[] =
+    "\t\tlw s1, 0(sp)\n\t\tfcvt.s.w fs1, s1\n\t\tfsw fs1, 0(sp)";
+static char i32f64[] =
+    "\t\tlw s1, 0(sp)\n\t\tfcvt.d.w fs1, s1\n\t\tfsd fs1, 0(sp)";
+static char u32f32[] =
+    "\t\tlw s1, 0(sp)\n\t\tfcvt.s.wu fs1, s1\n\t\tfsw fs1, 0(sp)";
+static char u32f64[] =
+    "\t\tlw s1, 0(sp)\n\t\tfcvt.d.wu fs1, s1\n\t\tfsd fs1, 0(sp)";
+
+static char i64f32[] = "\t\tfcvt.s.l fs1, s1\n\t\tfsw fs1, 0(sp)";
+static char i64f64[] = "\t\tfcvt.d.l fs1, s1\n\t\tfsd fs1, 0(sp)";
+static char u64f32[] = "\t\tfcvt.s.lu fs1, s1\n\t\tfsw fs1, 0(sp)";
+static char u64f64[] = "\t\tfcvt.d.lu fs1, s1\n\t\tfsd fs1, 0(sp)";
+
+static char i32u16[] = "\t\tlhu s1, 0(sp)";
+static char f32i8[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.w.s s1,fs1, rtz\n\t\tsb "
+                      "s1, 0(sp)\n\t\tlb s1, 0(sp)";
+static char f32u8[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.wu.s s1,fs1, rtz\n\t\tsb "
+                      "s1, 0(sp)\n\t\tlbu s1, 0(sp)";
+static char f32i16[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.w.s s1,fs1, rtz\n\t\tsh "
+                       "s1, 0(sp)\n\t\tlh s1, 0(sp)";
+static char f32u16[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.wu.s s1,fs1, rtz\n\t\tsh "
+                       "s1, 0(sp)\n\t\tlhu s1, 0(sp)";
+static char f32i32[] =
+    "\t\tflw fs1, 0(sp)\n\t\tfcvt.w.s s1, fs1, rtz\n\t\tsw s1, 0(sp)";
+static char f32u32[] =
+    "\t\tflw fs1, 0(sp)\n\t\tfcvt.wu.s s1, fs1, rtz\n\t\tsw s1, 0(sp)";
+static char f32i64[] =
+    "\t\tflw fs1, 0(sp)\n\t\tfcvt.l.s s1, fs1, rtz\n\t\tsd s1, 0(sp)";
+static char f32u64[] =
+    "\t\tflw fs1, 0(sp)\n\t\tfcvt.lu.s s1, fs1, rtz\n\t\tsd s1, 0(sp)";
+
+static char f64i8[] = "\t\tfld fs1, 0(sp)\n\t\tfcvt.w.d s1,fs1, rtz\n\t\tsb "
+                      "s1, 0(sp)\n\t\tlb s1, 0(sp)";
+static char f64u8[] = "\t\tfld fs1, 0(sp)\n\t\tfcvt.wu.d s1,fs1, rtz\n\t\tsb "
+                      "s1, 0(sp)\n\t\tlbu s1, 0(sp)";
+static char f64i16[] = "\t\tfld fs1, 0(sp)\n\t\tfcvt.w.d s1,fs1, rtz\n\t\tsh "
+                       "s1, 0(sp)\n\t\tlh s1, 0(sp)";
+static char f64u16[] = "\t\tfld fs1, 0(sp)\n\t\tfcvt.wu.d s1,fs1, rtz\n\t\tsh "
+                       "s1, 0(sp)\n\t\tlhu s1, 0(sp)";
+static char f64i32[] =
+    "\t\tfld fs1, 0(sp)\n\t\tfcvt.w.d s1, fs1, rtz\n\t\tsw s1, 0(sp)";
+static char f64u32[] =
+    "\t\tfld fs1, 0(sp)\n\t\tfcvt.wu.d s1, fs1, rtz\n\t\tsw s1, 0(sp)";
+static char f64i64[] =
+    "\t\tfld fs1, 0(sp)\n\t\tfcvt.l.d s1, fs1, rtz\n\t\tsd s1, 0(sp)";
+static char f64u64[] =
+    "\t\tfld fs1, 0(sp)\n\t\tfcvt.lu.d s1, fs1, rtz\n\t\tsd s1, 0(sp)";
+
+static char f32f64[] = "\t\tfcvt.d.s fs1, fs1";
+static char f64f32[] = "\t\tfcvt.s.d fs1, fs1";
+
 static char *cast_table[][10] = {
-    {NULL, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64},    // i8
-    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64},   // i16
-    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64}, // i32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL},     // i64
-    {i32i8, NULL, NULL, i32i64, NULL, NULL, NULL, i32i64},      // u8
-    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, NULL, i32i64},   // u16
-    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64}, // u32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL},     // u64
+    // i8   i16     i32     i64     u8     u16     u32     u64     f32     f64
+    {NULL, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+     i32f64}, // i8
+    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+     i32f64}, // i16
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+     i32f64}, // i32
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL, i64f32,
+     i64f64}, // i64
+
+    {i32i8, NULL, NULL, i32i64, NULL, NULL, NULL, i32i64, i32f32, i32f64}, // u8
+    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, NULL, i32i64, i32f32,
+     i32f64}, // u16
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64, u32f32,
+     u32f64}, // u32
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL, u64f32,
+     u64f64}, // u64
+
+    {f32i8, f32i16, f32i32, f32i64, f32u8, f32u16, f32u32, f32u64, NULL,
+     f32f64}, // f32
+    {f64i8, f64i16, f64i32, f64i64, f64u8, f64u16, f64u32, f64u64, f64f32,
+     NULL}, // f64
 };
-static void cast(Type *from, Type *to, char *r) {
+static void cast(Type *from, Type *to) {
   if (to->kind == TY_VOID) {
     return;
   }
@@ -67,7 +139,7 @@ static void cast(Type *from, Type *to, char *r) {
   int t1 = getTypeId(from->kind, from->is_unsigned);
   int t2 = getTypeId(to->kind, to->is_unsigned);
   if (cast_table[t1][t2]) {
-    println(cast_table[t1][t2], r);
+    println(cast_table[t1][t2]);
   }
 }
 
@@ -109,7 +181,15 @@ static void load(Node *node) {
       }
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tflw fs1, 0(s1)");
+        return;
+      }
       println("\t\tlw s1, 0(s1)");
+      return;
+    }
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tfld fs1, 0(s1)");
       return;
     }
     println("\t\tld s1, 0(s1)");
@@ -131,10 +211,18 @@ static void load(Node *node) {
       }
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tflw fs1, 0(s1)");
+        return;
+      }
       println("\t\tlw s1, 0(s1)");
       return;
     }
-    println("\t\tld s1, 0(s1)");
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tfld fs1, 0(s1)");
+    } else {
+      println("\t\tld s1, 0(s1)");
+    }
   } else {
     if (ty->size == 1) {
       if (ty->is_unsigned) {
@@ -151,10 +239,17 @@ static void load(Node *node) {
       }
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tflw fs1, %%lo(%s)(s1)", node->var->name);
+      }
       println("\t\tlw s1, %%lo(%s)(s1)", node->var->name);
       return;
     }
-    println("\t\tld s1, %%lo(%s)(s1)", node->var->name);
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tfld fs1, %%lo(%s)(s1)", node->var->name);
+    } else {
+      println("\t\tld s1, %%lo(%s)(s1)", node->var->name);
+    }
   }
 }
 
@@ -184,11 +279,22 @@ static void store(Node *lhs, Node *rhs) {
 
         println("\t\tsh s1, 0(t2)");
       } else if (member->ty->size == 4) {
-        println("\t\tlw s1, %d(a7)", member->offset);
-        println("\t\tsw s1, 0(t2)");
+        if (member->ty->kind == TY_FLOAT) {
+          println("\t\tflw fs1, %d(a7)", member->offset);
+          println("\t\tsfw fs1, 0(t2)");
+        } else {
+          println("\t\tlw s1, %d(a7)", member->offset);
+          println("\t\tsw s1, 0(t2)");
+        }
+
       } else {
-        println("\t\tld s1, %d(a7)", member->offset);
-        println("\t\tsd s1, 0(t2)");
+        if (member->ty->kind == TY_DOUBLE) {
+          println("\t\tfld fs1, %d(a7)", member->offset);
+          println("\t\tsfd fs1, 0(t2)");
+        } else {
+          println("\t\tld s1, %d(a7)", member->offset);
+          println("\t\tsd s1, 0(t2)");
+        }
       }
     }
     println("\t\tadd s1, zero, a7");
@@ -203,7 +309,15 @@ static void store(Node *lhs, Node *rhs) {
       println("\t\tsh s1, 0(t0)");
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tsfw fs1, 0(t0)");
+        return;
+      }
       println("\t\tsw s1, 0(t0)");
+      return;
+    }
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tsfd fs1, 0(t0)");
       return;
     }
     println("\t\tsd s1, 0(t0)");
@@ -217,10 +331,19 @@ static void store(Node *lhs, Node *rhs) {
       println("\t\tsh s1, 0(t0)");
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tsfw fs1, 0(t0)");
+        return;
+      }
       println("\t\tsw s1, 0(t0)");
       return;
     }
-    println("\t\tsd s1, 0(t0)");
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tsfd fs1, 0(t0)");
+    } else {
+      println("\t\tsd s1, 0(t0)");
+    }
+
   } else {
     if (ty->size == 1) {
       println("\t\tsb s1, %%lo(%s)(t0)", lhs->var->name);
@@ -229,10 +352,18 @@ static void store(Node *lhs, Node *rhs) {
       println("\t\tsh s1, %%lo(%s)(t0)", lhs->var->name);
       return;
     } else if (ty->size == 4) {
+      if (ty->kind == TY_FLOAT) {
+        println("\t\tsfw fs1, %%lo(%s)(t0)", lhs->var->name);
+        return;
+      }
       println("\t\tsw s1, %%lo(%s)(t0)", lhs->var->name);
       return;
     }
-    println("\t\tsd s1, %%lo(%s)(t0)", lhs->var->name);
+    if (ty->kind == TY_DOUBLE) {
+      println("\t\tsfd fs1, %%lo(%s)(t0)", lhs->var->name);
+    } else {
+      println("\t\tsd s1, %%lo(%s)(t0)", lhs->var->name);
+    }
   }
 }
 
@@ -292,13 +423,13 @@ static void gen_expr(Node *node) {
     case TY_FLOAT: {
       ConstVal *cval = create_constval(node->fval, TY_FLOAT);
       println("\t\tlui t1, %%hi(.LC%d)", cval->idx);
-      println("\t\tflw fs0, %%lo(.LC%d)(t1)", cval->idx);
+      println("\t\tflw fs1, %%lo(.LC%d)(t1)", cval->idx);
       return;
     }
     case TY_DOUBLE: {
       ConstVal *cval = create_constval(node->fval, TY_DOUBLE);
       println("\t\tlui t1, %%hi(.LC%d)", cval->idx);
-      println("\t\tfld fs0, %%lo(.LC%d)(t1)", cval->idx);
+      println("\t\tfld fs1, %%lo(.LC%d)(t1)", cval->idx);
       return;
     }
     }
@@ -346,10 +477,15 @@ static void gen_expr(Node *node) {
   case ND_CAST: {
     gen_expr(node->rhs);
     println("\t\taddi sp,sp,-8");
+    if (node->rhs->ty->kind == TY_FLOAT) {
+      println("\t\tfsw fs1, 0(sp)");
+    } else if (node->rhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfsd fs1, 0(sp)");
+    } else {
+      println("\t\tsd s1, 0(sp)");
+    }
 
-    println("\t\tsd s1, 0(sp)");
-
-    cast(node->rhs->ty, node->ty, "sp");
+    cast(node->rhs->ty, node->ty);
     println("\t\taddi sp,sp,8");
   }
     return;
