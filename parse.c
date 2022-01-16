@@ -518,7 +518,7 @@ static Type *func_param(Token **rest, Token *tok, Type *ty) {
   }
 
   if (cur == &head) {
-    is_variadic = true;
+    // is_variadic = true;
   }
 
   ty = func_type(ty);
@@ -2068,6 +2068,8 @@ static Node *funccall(Token **rest, Token *tok) {
       }
       arg = new_cast(arg, param_ty);
       param_ty = param_ty->next;
+    } else if (arg->ty->kind == TY_FLOAT) {
+      arg = new_cast(arg, ty_double);
     }
 
     cur = cur->next = arg;

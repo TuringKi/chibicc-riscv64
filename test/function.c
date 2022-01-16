@@ -76,6 +76,7 @@ char *fmt(char *buf, char *fmt, ...) {
 float add_float3(float x, float y, float z) { return x + y + z; }
 
 double add_double3(double x, double y, double z) { return x + y + z; }
+double add_double_int(double x, double y, int z) { return x + y + z; }
 
 int main() {
   ASSERT(3, ret3());
@@ -144,7 +145,18 @@ int main() {
 
   ASSERT(7, add_float3(2.5, 2.5, 2.5));
   ASSERT(7, add_double3(2.5, 2.5, 2.5));
+  ASSERT(8, add_double_int(2.5, 2.5, 3));
 
+  ASSERT(0, ({
+           char buf[100];
+           sprintf(buf, "%.1f", (float)3.5);
+           strcmp(buf, "3.5");
+         }));
+  ASSERT(0, ({
+           char buf[100];
+           fmt(buf, "%.1f", (float)3.5);
+           strcmp(buf, "3.5");
+         }));
   printf("OK\n");
   return 0;
 }

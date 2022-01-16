@@ -673,13 +673,38 @@ static void gen_expr(Node *node) {
   case ND_FUNCCAL: {
     push_args(node->args);
 
-    int gp = 0, fp = 0;
+    bool is_va_area = false;
+    int np = 0, up = 0;
+
+    //  is_va_area = true;
+    for (Type *var = node->func_ty->params; var; var = var->next) {
+      np++;
+    }
     for (Node *arg = node->args; arg; arg = arg->next) {
-      if (is_flonum(arg->ty)) {
-        popf(argfreg[fp++]);
+      up++;
+    }
+    if (up > np) {
+      is_va_area = true;
+    }
+    int fp = 0, allp = 0;
+
+    for (Node *arg = node->args; arg; arg = arg->next) {
+      if (is_va_area && is_flonum(arg->ty)) {
+        if (allp >= np) {
+          popf("ft1");
+          println("\t\tfmv.x.d %s,ft1", argreg[fp++]);
+        }
+
       } else {
-        pop(argreg[gp++]);
+        if (is_flonum(arg->ty)) {
+          popf(argfreg[fp++]);
+
+        } else {
+          pop(argreg[fp++]);
+        }
       }
+
+      allp++;
     }
     // int nargs = 0;
 
@@ -1165,8 +1190,10 @@ void emit_text(Obj *prog) {
       println("\t\tli t1, %d", offset);
       println("\t\tadd t1, t1, fp");
       offset = 0;
+
       for (int i = np; i < 8; i++) {
         println("\t\tsd a%d, %d(t1)", i, offset);
+        //  println("\t\tfsd fa%d, %d(t1)", i, offset);
         offset += 8;
       }
     }
