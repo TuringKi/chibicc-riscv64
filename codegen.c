@@ -4,6 +4,7 @@
 static FILE *output_file;
 static int depth;
 static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5"};
+static char *argfreg[] = {"fa0", "fa1", "fa2", "fa3", "fa4", "fa5"};
 static Obj *cur_fn;
 typedef struct ConstVal ConstVal;
 struct ConstVal {
@@ -45,7 +46,19 @@ static int getTypeId(TypeKind ty, bool is_unsigned) {
   return U64;
 }
 
-static void cmp_zero() { println("\t\tsnez s1, s1"); }
+static void cmp_zero(TypeKind kind) {
+  if (kind == TY_FLOAT) {
+    println("\t\tfmv.w.x ft1, zero");
+    println("\t\tfeq.s s1, fs1,ft1");
+    println("\t\tseqz s1, s1");
+  } else if (kind == TY_DOUBLE) {
+    println("\t\tfmv.d.x ft1, zero");
+    println("\t\tfeq.d s1, fs1,ft1");
+    println("\t\tseqz s1, s1");
+  } else {
+    println("\t\tsnez s1, s1");
+  }
+}
 
 static char i32i8[] = "\t\tlb s1, 0(sp)";
 static char i32i16[] = "\t\tlh s1, 0(sp)";
@@ -133,7 +146,8 @@ static void cast(Type *from, Type *to) {
     return;
   }
   if (to->kind == TY_BOOL) {
-    cmp_zero();
+
+    cmp_zero(from->kind);
     return;
   }
   int t1 = getTypeId(from->kind, from->is_unsigned);
@@ -293,7 +307,7 @@ static void store(Node *lhs, Node *rhs) {
       } else if (member->ty->size == 4) {
         if (member->ty->kind == TY_FLOAT) {
           println("\t\tflw fs1, %d(a7)", member->offset);
-          println("\t\tsfw fs1, 0(t2)");
+          println("\t\tfsw fs1, 0(t2)");
         } else {
           println("\t\tlw s1, %d(a7)", member->offset);
           println("\t\tsw s1, 0(t2)");
@@ -302,7 +316,7 @@ static void store(Node *lhs, Node *rhs) {
       } else {
         if (member->ty->kind == TY_DOUBLE) {
           println("\t\tfld fs1, %d(a7)", member->offset);
-          println("\t\tsfd fs1, 0(t2)");
+          println("\t\tfsd fs1, 0(t2)");
         } else {
           println("\t\tld s1, %d(a7)", member->offset);
           println("\t\tsd s1, 0(t2)");
@@ -322,14 +336,14 @@ static void store(Node *lhs, Node *rhs) {
       return;
     } else if (ty->size == 4) {
       if (ty->kind == TY_FLOAT) {
-        println("\t\tsfw fs1, 0(t0)");
+        println("\t\tfsw fs1, 0(t0)");
         return;
       }
       println("\t\tsw s1, 0(t0)");
       return;
     }
     if (ty->kind == TY_DOUBLE) {
-      println("\t\tsfd fs1, 0(t0)");
+      println("\t\tfsd fs1, 0(t0)");
       return;
     }
     println("\t\tsd s1, 0(t0)");
@@ -344,14 +358,14 @@ static void store(Node *lhs, Node *rhs) {
       return;
     } else if (ty->size == 4) {
       if (ty->kind == TY_FLOAT) {
-        println("\t\tsfw fs1, 0(t0)");
+        println("\t\tfsw fs1, 0(t0)");
         return;
       }
       println("\t\tsw s1, 0(t0)");
       return;
     }
     if (ty->kind == TY_DOUBLE) {
-      println("\t\tsfd fs1, 0(t0)");
+      println("\t\tfsd fs1, 0(t0)");
     } else {
       println("\t\tsd s1, 0(t0)");
     }
@@ -365,14 +379,14 @@ static void store(Node *lhs, Node *rhs) {
       return;
     } else if (ty->size == 4) {
       if (ty->kind == TY_FLOAT) {
-        println("\t\tsfw fs1, %%lo(%s)(t0)", lhs->var->name);
+        println("\t\tfsw fs1, %%lo(%s)(t0)", lhs->var->name);
         return;
       }
       println("\t\tsw s1, %%lo(%s)(t0)", lhs->var->name);
       return;
     }
     if (ty->kind == TY_DOUBLE) {
-      println("\t\tsfd fs1, %%lo(%s)(t0)", lhs->var->name);
+      println("\t\tfsd fs1, %%lo(%s)(t0)", lhs->var->name);
     } else {
       println("\t\tsd s1, %%lo(%s)(t0)", lhs->var->name);
     }
@@ -419,6 +433,20 @@ static ConstVal *create_constval(double fval, TypeKind kind) {
   cur_const_val = cur_const_val->next = cval;
   return cur_const_val;
 }
+
+static void push_args(Node *args) {
+  if (args) {
+    push_args(args->next);
+
+    gen_expr(args);
+    if (is_flonum(args->ty)) {
+      pushf();
+    } else {
+      push();
+    }
+  }
+}
+
 static void gen_expr(Node *node) {
   println("\t\t.loc 1 %d", node->tok->line_no);
 
@@ -514,9 +542,31 @@ static void gen_expr(Node *node) {
   case ND_LOGAND: {
     int c = count();
     gen_expr(node->lhs);
-    println("\t\tbeqz s1, .L.false.%d", c);
+    if (node->lhs->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbnez s1, .L.false.%d", c);
+    } else if (node->lhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbnez s1, .L.false.%d", c);
+    } else {
+      println("\t\tbeqz s1, .L.false.%d", c);
+    }
+    //
     gen_expr(node->rhs);
-    println("\t\tbeqz s1, .L.false.%d", c);
+
+    if (node->rhs->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbnez s1, .L.false.%d", c);
+    } else if (node->rhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbnez s1, .L.false.%d", c);
+    } else {
+      println("\t\tbeqz s1, .L.false.%d", c);
+    }
     println("\t\taddi s1,zero, 1");
     println("\t\tj .L.end.%d", c);
     println(".L.false.%d:", c);
@@ -527,9 +577,30 @@ static void gen_expr(Node *node) {
   case ND_LOGOR: {
     int c = count();
     gen_expr(node->lhs);
-    println("\t\tbnez s1, .L.true.%d", c);
+    if (node->lhs->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.true.%d", c);
+    } else if (node->lhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.true.%d", c);
+    } else {
+      println("\t\tbnez s1, .L.true.%d", c);
+    }
+
     gen_expr(node->rhs);
-    println("\t\tbnez s1, .L.true.%d", c);
+    if (node->rhs->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.true.%d", c);
+    } else if (node->rhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.true.%d", c);
+    } else {
+      println("\t\tbnez s1, .L.true.%d", c);
+    }
     println("\t\taddi s1,zero, 0");
     println("\t\tj .L.end.%d", c);
     println(".L.true.%d:", c);
@@ -540,7 +611,15 @@ static void gen_expr(Node *node) {
 
   case ND_NOT:
     gen_expr(node->rhs);
-    println("\t\tseqz s1, s1");
+    if (node->rhs->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+    } else if (node->rhs->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+    } else {
+      println("\t\tseqz s1, s1");
+    }
     return;
   case ND_BITNOT:
     gen_expr(node->rhs);
@@ -572,26 +651,52 @@ static void gen_expr(Node *node) {
   case ND_COND: {
     int c = count();
     gen_expr(node->cond);
-    println("\t\tbeqz s1, .L.else.%d", c);
+    if (node->cond->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbnez s1, .L.else.%d", c);
+    } else if (node->cond->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbnez s1, .L.else.%d", c);
+    } else {
+      println("\t\tbeqz s1, .L.else.%d", c);
+    }
+
     gen_expr(node->then);
-    println("  j .L.end.%d", c);
+    println("\t\tj .L.end.%d", c);
     println(".L.else.%d:", c);
     gen_expr(node->els);
     println(".L.end.%d:", c);
     return;
   }
   case ND_FUNCCAL: {
-    int nargs = 0;
+    push_args(node->args);
 
+    int gp = 0, fp = 0;
     for (Node *arg = node->args; arg; arg = arg->next) {
-      gen_expr(arg);
-      push();
-      nargs++;
+      if (is_flonum(arg->ty)) {
+        popf(argfreg[fp++]);
+      } else {
+        pop(argreg[gp++]);
+      }
     }
+    // int nargs = 0;
 
-    for (int i = nargs - 1; i >= 0; i--) {
-      pop(argreg[i]);
-    }
+    // for (Node *arg = node->args; arg; arg = arg->next) {
+    //   gen_expr(arg);
+    //   if (is_flonum(arg->ty)) {
+    //     pushf();
+    //   } else {
+    //     push();
+    //   }
+    //   nargs++;
+    // }
+
+    // for (int i = nargs - 1; i >= 0; i--) {
+
+    //   pop(argreg[i]);
+    // }
 
     if (depth % 2 == 0) {
       println("\t\tcall %s", node->funcname);
@@ -602,7 +707,13 @@ static void gen_expr(Node *node) {
     }
 
     println("\t\taddi sp,sp,-8");
-    println("\t\tsd a0, 0(sp)");
+    if (node->ty->kind == TY_FLOAT) {
+      println("\t\tfsw fa0, 0(sp)");
+    } else if (node->ty->kind == TY_DOUBLE) {
+      println("\t\tfsd fa0, 0(sp)");
+    } else {
+      println("\t\tsd a0, 0(sp)");
+    }
 
     switch (node->ty->kind) {
     case TY_BOOL:
@@ -624,6 +735,12 @@ static void gen_expr(Node *node) {
       break;
     case TY_INT:
       println("\t\tlw s1, 0(sp)");
+      break;
+    case TY_FLOAT:
+      println("\t\tflw fs1, 0(sp)");
+      break;
+    case TY_DOUBLE:
+      println("\t\tfld fs1, 0(sp)");
       break;
     default:
       println("\t\tld s1, 0(sp)");
@@ -803,9 +920,19 @@ static void gen_stmt(Node *node) {
   case ND_IF: {
     int c = count();
     gen_expr(node->cond);
-    println("\t\tbeq zero, s1, .L.else.%d", c);
+    if (node->cond->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbnez s1, .L.else.%d", c);
+    } else if (node->cond->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbnez s1, .L.else.%d", c);
+    } else {
+      println("\t\tbeqz s1, .L.else.%d", c);
+    }
     gen_stmt(node->then);
-    println("\t\tjal zero, .L.end.%d", c);
+    println("\t\tj .L.end.%d", c);
     println(".L.else.%d:", c);
     if (node->els) {
       gen_stmt(node->els);
@@ -821,14 +948,24 @@ static void gen_stmt(Node *node) {
     println(".L.begin.%d:", c);
     if (node->cond) {
       gen_expr(node->cond);
-      println("\t\tbeq zero, s1, %s", node->brk_label);
+      if (node->cond->ty->kind == TY_FLOAT) {
+        println("\t\tfmv.w.x ft1, zero");
+        println("\t\tfeq.s s1, fs1,ft1");
+        println("\t\tbnez s1,  %s", node->brk_label);
+      } else if (node->cond->ty->kind == TY_DOUBLE) {
+        println("\t\tfmv.d.x ft1, zero");
+        println("\t\tfeq.d s1, fs1,ft1");
+        println("\t\tbnez s1,  %s", node->brk_label);
+      } else {
+        println("\t\tbeqz s1, %s", node->brk_label);
+      }
     }
     gen_stmt(node->then);
     println("%s:", node->cont_label);
     if (node->inc) {
       gen_expr(node->inc);
     }
-    println("\t\tjal zero, .L.begin.%d", c);
+    println("\t\tj .L.begin.%d", c);
     println("%s:", node->brk_label);
     return;
   }
@@ -845,7 +982,18 @@ static void gen_stmt(Node *node) {
     gen_stmt(node->then);
     println("%s:", node->cont_label);
     gen_expr(node->cond);
-    println("  bnez s1, .L.begin.%d", c);
+    if (node->cond->ty->kind == TY_FLOAT) {
+      println("\t\tfmv.w.x ft1, zero");
+      println("\t\tfeq.s s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.begin.%d", c);
+    } else if (node->cond->ty->kind == TY_DOUBLE) {
+      println("\t\tfmv.d.x ft1, zero");
+      println("\t\tfeq.d s1, fs1,ft1");
+      println("\t\tbeqz s1, .L.begin.%d", c);
+    } else {
+      println("  bnez s1, .L.begin.%d", c);
+    }
+
     println("%s:", node->brk_label);
     return;
   }
@@ -1030,9 +1178,18 @@ void emit_text(Obj *prog) {
       } else if (var->ty->size == 2) {
         println("\t\tsh %s, %d(fp)", argreg[i++], (var->offset));
       } else if (var->ty->size == 4) {
-        println("\t\tsw %s, %d(fp)", argreg[i++], (var->offset));
+        if (var->ty->kind == TY_FLOAT) {
+          println("\t\tfsw %s, %d(fp)", argfreg[i++], (var->offset));
+        } else {
+          println("\t\tsw %s, %d(fp)", argreg[i++], (var->offset));
+        }
+
       } else {
-        println("\t\tsd %s, %d(fp)", argreg[i++], (var->offset));
+        if (var->ty->kind == TY_DOUBLE) {
+          println("\t\tfsd %s, %d(fp)", argfreg[i++], (var->offset));
+        } else {
+          println("\t\tsd %s, %d(fp)", argreg[i++], (var->offset));
+        }
       }
     }
 
@@ -1040,7 +1197,21 @@ void emit_text(Obj *prog) {
     assert(depth == 0);
 
     println(".L.return.%s:", fn->name);
-    println("\t\tadd a0, zero, s1");
+    println("\t\tmv a0, s1");
+
+    if (fn->ty->return_ty->kind == TY_FLOAT) {
+      println("\t\taddi sp, sp, -8");
+      println("\t\tfsw fs1, 0(sp)");
+      println("\t\tflw fa0, 0(sp)");
+      println("\t\taddi sp, sp, 8");
+
+    } else if (fn->ty->return_ty->kind == TY_DOUBLE) {
+      println("\t\taddi sp, sp, -8");
+      println("\t\tfsd fs1, 0(sp)");
+      println("\t\tfld fa0, 0(sp)");
+      println("\t\taddi sp, sp, 8");
+    }
+
     println("\t\tli t1, %d", fn->stack_size);
     println("\t\tadd sp, sp, t1");
     println("\t\tld ra, -8(sp)");
