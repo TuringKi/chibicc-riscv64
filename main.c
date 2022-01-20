@@ -57,6 +57,7 @@ static FILE *open_file(char *path) {
 }
 
 int main(int argc, char **argv) {
+
   parse_args(argc, argv);
 
   Token *tok = tokenize_file(input_path);

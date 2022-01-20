@@ -70,6 +70,10 @@ int main() {
   ASSERT(8, sizeof(0x1ffffffff));
   ASSERT(4, sizeof(0xffffffff));
   ASSERT(1, 0xffffffff >> 31);
+  ASSERT(1, ({
+           unsigned int x = 0xfffffffffff;
+           ((unsigned int)(0xfffffffffff) >> 31);
+         }));
 
   ASSERT(8, sizeof(040000000000));
   ASSERT(4, sizeof(037777777777));

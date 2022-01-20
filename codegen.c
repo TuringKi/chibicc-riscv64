@@ -14,8 +14,8 @@ struct ConstVal {
   ConstVal *next;
 };
 static ConstVal *cur_const_val;
-static void gen_expr();
-static void gen_stmt();
+static void gen_expr(Node *node);
+static void gen_stmt(Node *node);
 static void gen_addr(Node *node);
 
 static void println(char *fmt, ...) {
@@ -64,6 +64,8 @@ static char i32i8[] = "\t\tlb s1, 0(sp)";
 static char i32i16[] = "\t\tlh s1, 0(sp)";
 static char i32i64[] = "\t\tld s1, 0(sp)";
 static char i32u8[] = "\t\tlbu s1, 0(sp)";
+static char i32u32[] = "\t\tlwu s1, 0(sp)";
+static char i32u64[] = "\t\tld s1, 0(sp)";
 
 static char i32f32[] =
     "\t\tlw s1, 0(sp)\n\t\tfcvt.s.w fs1, s1\n\t\tfsw fs1, 0(sp)";
@@ -119,21 +121,22 @@ static char f64f32[] = "\t\tfcvt.s.d fs1, fs1";
 
 static char *cast_table[][10] = {
     // i8   i16     i32     i64     u8     u16     u32     u64     f32     f64
-    {NULL, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+    {NULL, NULL, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i8
-    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i16
-    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64, i32f32,
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL, i64f32,
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, i32u32, i32u64, i64f32,
      i64f64}, // i64
 
-    {i32i8, NULL, NULL, i32i64, NULL, NULL, NULL, i32i64, i32f32, i32f64}, // u8
-    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, NULL, i32i64, i32f32,
+    {i32i8, NULL, NULL, i32i64, NULL, NULL, i32u32, i32u64, i32f32,
+     i32f64}, // u8
+    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, i32u32, i32u64, i32f32,
      i32f64}, // u16
-    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32i64, u32f32,
+    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32u64, u32f32,
      u32f64}, // u32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, NULL, NULL, u64f32,
+    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, i32u32, NULL, u64f32,
      u64f64}, // u64
 
     {f32i8, f32i16, f32i32, f32i64, f32u8, f32u16, f32u32, f32u64, NULL,
@@ -250,6 +253,7 @@ static void load(Node *node) {
       println("\t\tld s1, 0(s1)");
     }
   } else {
+    println("\t\tlui s1, %%hi(%s)", node->var->name);
     if (ty->size == 1) {
       if (ty->is_unsigned) {
         println("\t\tlbu s1, %%lo(%s)(s1)", node->var->name);
@@ -371,6 +375,7 @@ static void store(Node *lhs, Node *rhs) {
     }
 
   } else {
+    println("\t\tlui t0, %%hi(%s)", lhs->var->name);
     if (ty->size == 1) {
       println("\t\tsb s1, %%lo(%s)(t0)", lhs->var->name);
       return;
@@ -1199,23 +1204,26 @@ void emit_text(Obj *prog) {
     }
 
     int i = 0;
+
     for (Obj *var = fn->params; var; var = var->next) {
+      println("\t\tli t1, %d", var->offset);
+      println("\t\tadd t1, t1, fp");
       if (var->ty->size == 1) {
-        println("\t\tsb %s, %d(fp)", argreg[i++], (var->offset));
+        println("\t\tsb %s, 0(t1)", argreg[i++]);
       } else if (var->ty->size == 2) {
-        println("\t\tsh %s, %d(fp)", argreg[i++], (var->offset));
+        println("\t\tsh %s, 0(t1)", argreg[i++]);
       } else if (var->ty->size == 4) {
         if (var->ty->kind == TY_FLOAT) {
-          println("\t\tfsw %s, %d(fp)", argfreg[i++], (var->offset));
+          println("\t\tfsw %s, 0(t1)", argfreg[i++]);
         } else {
-          println("\t\tsw %s, %d(fp)", argreg[i++], (var->offset));
+          println("\t\tsw %s, 0(t1)", argreg[i++]);
         }
 
       } else {
         if (var->ty->kind == TY_DOUBLE) {
-          println("\t\tfsd %s, %d(fp)", argfreg[i++], (var->offset));
+          println("\t\tfsd %s, 0(t1)", argfreg[i++]);
         } else {
-          println("\t\tsd %s, %d(fp)", argreg[i++], (var->offset));
+          println("\t\tsd %s, 0(t1)", argreg[i++]);
         }
       }
     }

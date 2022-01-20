@@ -68,6 +68,7 @@ static int64_t const_expr(Token **rest, Token *tok);
 static int64_t eval_rval(Node *node, char **label);
 static int64_t eval(Node *node);
 static int64_t eval2(Node *node, char **label);
+static double eval_double(Node *node);
 static Node * bitor (Token * *rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
 static Node *assign(Token **rest, Token *tok);
@@ -453,6 +454,7 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr) {
       ty = ty_float;
       break;
     case DOUBLE:
+    case LONG + DOUBLE:
       ty = ty_double;
       break;
     default:
@@ -663,6 +665,16 @@ static Relocation *write_gvar_data(Relocation *cur, Initializer *init, Type *ty,
                            offset);
 
   if (!init->expr) {
+    return cur;
+  }
+
+  if (ty->kind == TY_FLOAT) {
+    *(float *)(buf + offset) = eval_double(init->expr);
+    return cur;
+  }
+
+  if (ty->kind == TY_DOUBLE) {
+    *(double *)(buf + offset) = eval_double(init->expr);
     return cur;
   }
 
@@ -903,7 +915,7 @@ static Node *stmt(Token **rest, Token *tok) {
 
     node->then = stmt(rest, tok);
     brk_label = brk;
-    cont_label = brk;
+    cont_label = cont;
 
     return node;
   }
@@ -957,6 +969,10 @@ static int64_t eval(Node *node) { return eval2(node, NULL); }
 
 static int64_t eval2(Node *node, char **label) {
   add_type(node);
+
+  if (is_flonum(node->ty)) {
+    return eval_double(node);
+  }
 
   switch (node->kind) {
   case ND_ADD:
@@ -1474,6 +1490,42 @@ static Node *expr(Token **rest, Token *tok) {
 
   *rest = tok;
   return node;
+}
+
+static double eval_double(Node *node) {
+  add_type(node);
+
+  if (is_integer(node->ty)) {
+    if (node->ty->is_unsigned)
+      return (unsigned long)eval(node);
+    return eval(node);
+  }
+
+  switch (node->kind) {
+  case ND_ADD:
+    return eval_double(node->lhs) + eval_double(node->rhs);
+  case ND_SUB:
+    return eval_double(node->lhs) - eval_double(node->rhs);
+  case ND_MUL:
+    return eval_double(node->lhs) * eval_double(node->rhs);
+  case ND_DIV:
+    return eval_double(node->lhs) / eval_double(node->rhs);
+  case ND_NEG:
+    return -eval_double(node->rhs);
+  case ND_COND:
+    return eval_double(node->cond) ? eval_double(node->then)
+                                   : eval_double(node->els);
+  case ND_COMMA:
+    return eval_double(node->rhs);
+  case ND_CAST:
+    if (is_flonum(node->rhs->ty))
+      return eval_double(node->rhs);
+    return eval(node->rhs);
+  case ND_NUM:
+    return node->fval;
+  }
+
+  error_tok(node->tok, "not a compile-time constant");
 }
 
 // Convert `A op= B` to `tmp = &A, *tmp = *tmp op B`

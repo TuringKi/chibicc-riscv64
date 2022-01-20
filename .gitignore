@@ -5,3 +5,4 @@ a.out
 *.ct
 tmp
 riscv64-chibicc
+stage2
