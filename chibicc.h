@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <libgen.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define MAX(x, y) ((x) < (y) ? (y) : (x))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -17,6 +21,14 @@ typedef struct Type Type;
 typedef struct Node Node;
 typedef struct Member Member;
 typedef struct Relocation Relocation;
+
+typedef struct {
+  char **data;
+  int capacity;
+  int len;
+} StringArray;
+
+void strarray_push(StringArray *arr, char *s);
 
 char *format(char *fmt, ...);
 
@@ -29,6 +41,12 @@ typedef enum {
   TK_EOF,
 } TokenKind;
 
+typedef struct {
+  char *name;
+  int file_no;
+  char *contents;
+} File;
+
 typedef struct Token Token;
 struct Token {
   TokenKind kind;
@@ -38,21 +56,29 @@ struct Token {
   char *loc;
   Type *ty;
   char *str;
-  int line_no; // Line number
+  int line_no;
   int len;
+  File *file;
+
+  bool at_bol;
 };
 
 void error(char *fmt, ...);
-void verror_at(int line_no, char *loc, char *fmt, va_list ap);
+void verror_at(char *filename, char *input, int line_no, char *loc, char *fmt,
+               va_list ap);
 void error_at(char *loc, char *fmt, ...);
 void error_tok(Token *tok, char *fmt, ...);
 
 bool equal(Token *tok, char *op);
 Token *skip(Token *tok, char *s);
 bool consume(Token **rest, Token *tok, char *str);
+void convert_keywords(Token *tok);
+File **get_input_files(void);
 Token *tokenize_file(char *input);
 
 #define unreachable() error("internal error at %s:%d", __FILE__, __LINE__)
+
+Token *preprocess(Token *tok);
 
 typedef struct Obj Obj;
 struct Obj {
@@ -160,7 +186,6 @@ struct Node {
   int64_t val;
   double fval;
   Type *func_ty;
-  char *funcname;
   Node *args;
 };
 
@@ -237,3 +262,5 @@ Type *func_type(Type *return_ty);
 Type *enum_type(void);
 void codegen(Obj *prog, FILE *out);
 int align_to(int n, int align);
+
+extern char *base_file;

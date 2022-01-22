@@ -87,6 +87,7 @@ static Node *lvar_initializer(Token **rest, Token *tok, Obj *var);
 static Node *mul(Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
+static Node *funcall(Token **rest, Token *tok, Node *node);
 static Node *postfix(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 static Node *relational(Token **rest, Token *tok);
@@ -509,10 +510,12 @@ static Type *func_param(Token **rest, Token *tok, Type *ty) {
 
     Type *ty2 = declspec(&tok, tok, NULL);
     ty2 = declarator(&tok, tok, ty2);
-
+    Token *name = ty2->name;
     if (ty2->kind == TY_ARRAY) {
-      Token *name = ty2->name;
       ty2 = pointer_to(ty2->base);
+      ty2->name = name;
+    } else if (ty2->kind == TY_FUNC) {
+      ty2 = pointer_to(ty2);
       ty2->name = name;
     }
 
@@ -2017,6 +2020,11 @@ static Node *postfix(Token **rest, Token *tok) {
   Node *node = primary(&tok, tok);
 
   for (;;) {
+    if (equal(tok, "(")) {
+      node = funcall(&tok, tok->next, node);
+      continue;
+    }
+
     if (equal(tok, "[")) {
       Token *start = tok;
       Node *idx = expr(&tok, tok->next);
@@ -2085,19 +2093,14 @@ static Node *unary(Token **rest, Token *tok) {
   return postfix(rest, tok);
 }
 
-static Node *funccall(Token **rest, Token *tok) {
-  Token *start = tok;
-  tok = tok->next->next;
+static Node *funcall(Token **rest, Token *tok, Node *fn) {
+  add_type(fn);
 
-  VarScope *sc = find_var(start);
-  if (!sc) {
-    error_tok(start, "implicit declaration of a function");
-  }
-  if (!sc->var || sc->var->ty->kind != TY_FUNC) {
-    error_tok(start, "not a function");
-  }
+  if (fn->ty->kind != TY_FUNC &&
+      (fn->ty->kind != TY_PTR || fn->ty->base->kind != TY_FUNC))
+    error_tok(fn->tok, "not a function");
 
-  Type *ty = sc->var->ty;
+  Type *ty = (fn->ty->kind == TY_FUNC) ? fn->ty : fn->ty->base;
   Type *param_ty = ty->params;
 
   Node head = {};
@@ -2133,8 +2136,7 @@ static Node *funccall(Token **rest, Token *tok) {
 
   *rest = skip(tok, ")");
 
-  Node *node = new_node(ND_FUNCCAL, start);
-  node->funcname = strndup(start->loc, start->len);
+  Node *node = new_unary(ND_FUNCCAL, fn, tok);
   node->func_ty = ty;
   node->ty = ty->return_ty;
   node->args = head.next;
@@ -2189,26 +2191,22 @@ static Node *primary(Token **rest, Token *tok) {
   }
 
   if (tok->kind == TK_IDENT) {
-
-    // Funcation call
-    if (equal(tok->next, "(")) {
-      return funccall(rest, tok);
-    }
-
-    // Variable
     VarScope *sc = find_var(tok);
-    if (!sc || (!sc->var && !sc->enum_ty)) {
-      error_tok(tok, "undefined variable");
-    }
-    Node *node;
-    if (sc->var) {
-      node = new_variable(sc->var, tok);
-    } else {
-      node = new_num(sc->enum_val, tok);
+    *rest = tok->next;
+
+    if (sc) {
+      if (sc->var) {
+        return new_variable(sc->var, tok);
+      }
+      if (sc->enum_ty) {
+        return new_num(sc->enum_val, tok);
+      }
     }
 
-    *rest = tok->next;
-    return node;
+    if (equal(tok->next, "(")) {
+      error_tok(tok, "implicit declaration of a function");
+    }
+    error_tok(tok, "undefined variable");
   }
 
   if (tok->kind == TK_NUM) {

@@ -62,8 +62,10 @@ static void cmp_zero(TypeKind kind) {
 
 static char i32i8[] = "\t\tlb s1, 0(sp)";
 static char i32i16[] = "\t\tlh s1, 0(sp)";
+static char i32u16[] = "\t\tlhu s1, 0(sp)";
 static char i32i64[] = "\t\tld s1, 0(sp)";
 static char i32u8[] = "\t\tlbu s1, 0(sp)";
+static char i32i32[] = "\t\tlw s1, 0(sp)";
 static char i32u32[] = "\t\tlwu s1, 0(sp)";
 static char i32u64[] = "\t\tld s1, 0(sp)";
 
@@ -81,7 +83,6 @@ static char i64f64[] = "\t\tfcvt.d.l fs1, s1\n\t\tfsd fs1, 0(sp)";
 static char u64f32[] = "\t\tfcvt.s.lu fs1, s1\n\t\tfsw fs1, 0(sp)";
 static char u64f64[] = "\t\tfcvt.d.lu fs1, s1\n\t\tfsd fs1, 0(sp)";
 
-static char i32u16[] = "\t\tlhu s1, 0(sp)";
 static char f32i8[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.w.s s1,fs1, rtz\n\t\tsb "
                       "s1, 0(sp)\n\t\tlb s1, 0(sp)";
 static char f32u8[] = "\t\tflw fs1, 0(sp)\n\t\tfcvt.wu.s s1,fs1, rtz\n\t\tsb "
@@ -121,22 +122,22 @@ static char f64f32[] = "\t\tfcvt.s.d fs1, fs1";
 
 static char *cast_table[][10] = {
     // i8   i16     i32     i64     u8     u16     u32     u64     f32     f64
-    {NULL, NULL, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
+    {NULL, i32i16, i32i32, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i8
-    {i32i8, NULL, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
+    {i32i8, NULL, i32i32, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i16
     {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // i32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, i32u32, i32u64, i64f32,
+    {i32i8, i32i16, i32i32, NULL, i32u8, i32u16, i32u32, NULL, i64f32,
      i64f64}, // i64
 
-    {i32i8, NULL, NULL, i32i64, NULL, NULL, i32u32, i32u64, i32f32,
+    {i32i8, i32i16, i32i32, i32i64, NULL, i32u16, i32u32, i32u64, i32f32,
      i32f64}, // u8
-    {i32i8, i32i16, NULL, i32i64, i32u8, NULL, i32u32, i32u64, i32f32,
+    {i32i8, i32i16, i32i32, i32i64, i32u8, NULL, i32u32, i32u64, i32f32,
      i32f64}, // u16
-    {i32i8, i32i16, NULL, i32i64, i32u8, i32u16, NULL, i32u64, u32f32,
+    {i32i8, i32i16, i32i32, i32i64, i32u8, i32u16, NULL, i32u64, u32f32,
      u32f64}, // u32
-    {i32i8, i32i16, NULL, NULL, i32u8, i32u16, i32u32, NULL, u64f32,
+    {i32i8, i32i16, i32i32, NULL, i32u8, i32u16, i32u32, NULL, u64f32,
      u64f64}, // u64
 
     {f32i8, f32i16, f32i32, f32i64, f32u8, f32u16, f32u32, f32u64, NULL,
@@ -191,7 +192,8 @@ static void popf(char *arg) {
 
 static void load(Node *node) {
   Type *ty = node->ty;
-  if (ty->kind == TY_ARRAY || ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
+  if (ty->kind == TY_ARRAY || ty->kind == TY_STRUCT || ty->kind == TY_UNION ||
+      ty->kind == TY_FUNC) {
     return;
   }
   if (!node->var) {
@@ -453,7 +455,7 @@ static void push_args(Node *args) {
 }
 
 static void gen_expr(Node *node) {
-  println("\t\t.loc 1 %d", node->tok->line_no);
+  println("  .loc %d %d", node->tok->file->file_no, node->tok->line_no);
 
   switch (node->kind) {
   case ND_NULL_EXPR:
@@ -677,6 +679,7 @@ static void gen_expr(Node *node) {
   }
   case ND_FUNCCAL: {
     push_args(node->args);
+    gen_expr(node->rhs);
 
     bool is_va_area = false;
     int np = 0, up = 0;
@@ -711,28 +714,12 @@ static void gen_expr(Node *node) {
 
       allp++;
     }
-    // int nargs = 0;
-
-    // for (Node *arg = node->args; arg; arg = arg->next) {
-    //   gen_expr(arg);
-    //   if (is_flonum(arg->ty)) {
-    //     pushf();
-    //   } else {
-    //     push();
-    //   }
-    //   nargs++;
-    // }
-
-    // for (int i = nargs - 1; i >= 0; i--) {
-
-    //   pop(argreg[i]);
-    // }
 
     if (depth % 2 == 0) {
-      println("\t\tcall %s", node->funcname);
+      println("\t\tjalr s1");
     } else {
       println("\t\taddi sp, sp, -8");
-      println("\t\tcall %s", node->funcname);
+      println("\t\tjalr s1");
       println("\t\taddi sp, sp, 8");
     }
 
@@ -944,7 +931,7 @@ static void gen_expr(Node *node) {
 }
 
 static void gen_stmt(Node *node) {
-  println("\t\t.loc 1 %d", node->tok->line_no);
+  println("  .loc %d %d", node->tok->file->file_no, node->tok->line_no);
 
   switch (node->kind) {
   case ND_IF: {
@@ -1259,6 +1246,12 @@ void codegen(Obj *prog, FILE *out) {
   ConstVal cval = {};
   cur_const_val = &cval;
   output_file = out;
+
+  File **files = get_input_files();
+  for (int i = 0; files[i]; i++) {
+    println("  .file %d \"%s\"", files[i]->file_no, files[i]->name);
+  }
+
   assign_lvar_offsets(prog);
   emit_data(prog);
   emit_text(prog);

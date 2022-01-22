@@ -1,28 +1,24 @@
 #include "chibicc.h"
 
+char *base_file;
+
 static char *opt_o;
 
 static char *input_path;
 
-static void usage(char *binname, int status) {
-  fprintf(stderr, "%s [ -o <path> ] <file>\n", binname);
+static void usage(int status) {
+  fprintf(stderr, "chibicc [ -o <path> ] <file>\n");
   exit(status);
 }
 
 static void parse_args(int argc, char **argv) {
-  if (argc == 0) {
-    exit(-1);
-  }
-  char *binname = argv[0];
   for (int i = 1; i < argc; i++) {
-    if (!strcmp(argv[i], "--help")) {
-      usage(binname, 0);
-    }
+    if (!strcmp(argv[i], "--help"))
+      usage(0);
 
     if (!strcmp(argv[i], "-o")) {
-      if (!argv[++i]) {
-        usage(binname, 1);
-      }
+      if (!argv[++i])
+        usage(1);
       opt_o = argv[i];
       continue;
     }
@@ -32,40 +28,39 @@ static void parse_args(int argc, char **argv) {
       continue;
     }
 
-    if (argv[i][0] == '-' && argv[i][1] != '\0') {
+    if (argv[i][0] == '-' && argv[i][1] != '\0')
       error("unknown argument: %s", argv[i]);
-    }
 
     input_path = argv[i];
   }
 
-  if (!input_path) {
+  if (!input_path)
     error("no input files");
-  }
 }
 
 static FILE *open_file(char *path) {
-  if (!path || strcmp(path, "-") == 0) {
+  if (!path || strcmp(path, "-") == 0)
     return stdout;
-  }
 
   FILE *out = fopen(path, "w");
-  if (!out) {
-    error("cannot open output: %s: %s", path, strerror(errno));
-  }
+  if (!out)
+    error("cannot open output file: %s: %s", path, strerror(errno));
   return out;
 }
 
 int main(int argc, char **argv) {
-
   parse_args(argc, argv);
 
+  // Tokenize and parse.
   Token *tok = tokenize_file(input_path);
+  if (!tok) {
+    error("%s: %s", base_file, strerror(errno));
+  }
+  tok = preprocess(tok);
   Obj *prog = parse(tok);
 
-  FILE *outfile = open_file(opt_o);
-  fprintf(outfile, ".file 1 \"%s\"\n", input_path);
-
-  codegen(prog, outfile);
+  // Traverse the AST to emit assembly.
+  FILE *out = open_file(opt_o);
+  codegen(prog, out);
   return 0;
 }
