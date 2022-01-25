@@ -68,6 +68,7 @@ void verror_at(char *filename, char *input, int line_no, char *loc, char *fmt,
                va_list ap);
 void error_at(char *loc, char *fmt, ...);
 void error_tok(Token *tok, char *fmt, ...);
+void warn_tok(Token *tok, char *fmt, ...);
 
 bool equal(Token *tok, char *op);
 Token *skip(Token *tok, char *s);
@@ -190,6 +191,7 @@ struct Node {
 };
 
 Node *new_cast(Node *expr, Type *ty);
+int64_t const_expr(Token **rest, Token *tok);
 Obj *parse(Token *tok);
 
 typedef enum {

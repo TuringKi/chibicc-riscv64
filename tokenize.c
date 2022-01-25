@@ -26,7 +26,7 @@ void verror_at(char *filename, char *input, int line_no, char *loc, char *fmt,
   }
 
   char *end = loc;
-  while (*end != '\n') {
+  while (*end && *end != '\n') {
     end++;
   }
 
@@ -61,6 +61,14 @@ void error_tok(Token *tok, char *fmt, ...) {
   verror_at(tok->file->name, tok->file->contents, tok->line_no, tok->loc, fmt,
             ap);
   exit(-1);
+}
+
+void warn_tok(Token *tok, char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  verror_at(tok->file->name, tok->file->contents, tok->line_no, tok->loc, fmt,
+            ap);
+  va_end(ap);
 }
 
 bool equal(Token *tok, char *op) {

@@ -64,7 +64,6 @@ static bool is_function(Token *tok);
 static bool is_typename(Token *tok);
 static Initializer *initializer(Token **rest, Token *tok, Type *ty,
                                 Type **new_ty);
-static int64_t const_expr(Token **rest, Token *tok);
 static int64_t eval_rval(Node *node, char **label);
 static int64_t eval(Node *node);
 static int64_t eval2(Node *node, char **label);
@@ -1095,7 +1094,7 @@ static int64_t eval_rval(Node *node, char **label) {
   error_tok(node->tok, "invalid initializer");
 }
 
-static int64_t const_expr(Token **rest, Token *tok) {
+int64_t const_expr(Token **rest, Token *tok) {
   Node *node = conditional(rest, tok);
   return eval(node);
 }
