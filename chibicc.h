@@ -21,6 +21,7 @@ typedef struct Type Type;
 typedef struct Node Node;
 typedef struct Member Member;
 typedef struct Relocation Relocation;
+typedef struct Hideset Hideset;
 
 typedef struct {
   char **data;
@@ -49,18 +50,18 @@ typedef struct {
 
 typedef struct Token Token;
 struct Token {
-  TokenKind kind;
-  Token *next;
-  int64_t val;
-  double fval;
-  char *loc;
-  Type *ty;
-  char *str;
-  int line_no;
-  int len;
-  File *file;
-
   bool at_bol;
+  char *loc;
+  char *str;
+  double fval;
+  File *file;
+  Hideset *hideset;
+  int len;
+  int line_no;
+  int64_t val;
+  Token *next;
+  TokenKind kind;
+  Type *ty;
 };
 
 void error(char *fmt, ...);
