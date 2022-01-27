@@ -2284,6 +2284,12 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   }
 
   tok = skip(tok, "{");
+  push_scope("__func__")->var =
+      new_string_literal(fn->name, array_of(ty_char, strlen(fn->name) + 1));
+
+  push_scope("__FUNCTION__")->var =
+      new_string_literal(fn->name, array_of(ty_char, strlen(fn->name) + 1));
+
   fn->body = block_stmt(&tok, tok);
   fn->locals = locals;
   leave_scope();

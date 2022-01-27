@@ -13,6 +13,8 @@ struct MacroArg {
   Token *tok;
 };
 
+typedef Token *macro_handler_fn(Token *);
+
 typedef struct Macro Macro;
 struct Macro {
   Macro *next;
@@ -20,7 +22,9 @@ struct Macro {
   Token *body;
   bool deleted;
   MacroParam *params;
+  bool is_variadic;
   bool is_objlike;
+  macro_handler_fn *handler;
 };
 
 typedef struct CondIncl CondIncl;
@@ -306,13 +310,20 @@ static Macro *add_macro(char *name, bool is_objlike, Token *body) {
   return m;
 }
 
-static MacroParam *read_macro_params(Token **rest, Token *tok) {
+static MacroParam *read_macro_params(Token **rest, Token *tok,
+                                     bool *is_variadic) {
   MacroParam head = {};
   MacroParam *cur = &head;
 
   while (!equal(tok, ")")) {
     if (cur != &head) {
       tok = skip(tok, ",");
+    }
+
+    if (equal(tok, "...")) {
+      *is_variadic = true;
+      *rest = skip(tok->next, ")");
+      return head.next;
     }
 
     if (tok->kind != TK_IDENT) {
@@ -334,20 +345,28 @@ static void read_macro_definition(Token **rest, Token *tok) {
   tok = tok->next;
 
   if (!tok->has_space && equal(tok, "(")) {
-    MacroParam *params = read_macro_params(&tok, tok->next);
+    bool is_variadic = false;
+    MacroParam *params = read_macro_params(&tok, tok->next, &is_variadic);
     Macro *m = add_macro(name, false, copy_line(rest, tok));
     m->params = params;
+    m->is_variadic = is_variadic;
   } else {
     add_macro(name, true, copy_line(rest, tok));
   }
 }
 
-static MacroArg *read_macro_arg_one(Token **rest, Token *tok) {
+static MacroArg *read_macro_arg_one(Token **rest, Token *tok, bool read_rest) {
   Token head = {};
   Token *cur = &head;
   int level = 0;
 
-  while (level > 0 || (!equal(tok, ",") && !equal(tok, ")"))) {
+  for (;;) {
+    if (level == 0 && equal(tok, ")")) {
+      break;
+    }
+    if (level == 0 && !read_rest && equal(tok, ",")) {
+      break;
+    }
     if (tok->kind == TK_EOF) {
       error_tok(tok, "premature end of input");
     }
@@ -382,7 +401,8 @@ static char *search_include_paths(char *filename) {
   return NULL;
 }
 
-static MacroArg *read_macro_args(Token **rest, Token *tok, MacroParam *params) {
+static MacroArg *read_macro_args(Token **rest, Token *tok, MacroParam *params,
+                                 bool is_variadic) {
   Token *start = tok;
   tok = tok->next->next;
 
@@ -391,13 +411,26 @@ static MacroArg *read_macro_args(Token **rest, Token *tok, MacroParam *params) {
 
   MacroParam *pp = params;
   for (; pp; pp = pp->next) {
-    if (cur != &head)
+    if (cur != &head) {
       tok = skip(tok, ",");
-    cur = cur->next = read_macro_arg_one(&tok, tok);
+    }
+    cur = cur->next = read_macro_arg_one(&tok, tok, false);
     cur->name = pp->name;
   }
-
-  if (pp) {
+  if (is_variadic) {
+    MacroArg *arg;
+    if (equal(tok, ")")) {
+      arg = calloc(1, sizeof(MacroArg));
+      arg->tok = new_eof(tok);
+    } else {
+      if (pp != params) {
+        tok = skip(tok, ",");
+      }
+      arg = read_macro_arg_one(&tok, tok, true);
+    }
+    arg->name = "__VA_ARGS__";
+    cur = cur->next = arg;
+  } else if (pp) {
     error_tok(start, "too many arguments");
   }
   skip(tok, ")");
@@ -541,9 +574,19 @@ static bool expand_macro(Token **rest, Token *tok) {
   if (!m) {
     return false;
   }
+
+  if (m->handler) {
+    *rest = m->handler(tok);
+    (*rest)->next = tok->next;
+    return true;
+  }
+
   if (m->is_objlike) {
     Hideset *hs = hideset_union(tok->hideset, new_hideset(m->name));
     Token *body = add_hideset(m->body, hs);
+    for (Token *t = body; t->kind != TK_EOF; t = t->next) {
+      t->origin = tok;
+    }
     *rest = append(body, tok->next);
     (*rest)->at_bol = tok->at_bol;
     (*rest)->has_space = tok->has_space;
@@ -554,7 +597,7 @@ static bool expand_macro(Token **rest, Token *tok) {
     return false;
 
   Token *macro_token = tok;
-  MacroArg *args = read_macro_args(&tok, tok, m->params);
+  MacroArg *args = read_macro_args(&tok, tok, m->params, m->is_variadic);
   Token *rparen = tok;
 
   Hideset *hs = hideset_intersection(macro_token->hideset, rparen->hideset);
@@ -562,6 +605,9 @@ static bool expand_macro(Token **rest, Token *tok) {
 
   Token *body = subst(m->body, args);
   body = add_hideset(body, hs);
+  for (Token *t = body; t->kind != TK_EOF; t = t->next) {
+    t->origin = macro_token;
+  }
   *rest = append(body, tok->next);
   (*rest)->at_bol = macro_token->at_bol;
   (*rest)->has_space = macro_token->has_space;
@@ -725,6 +771,10 @@ static Token *preprocess2(Token *tok) {
       continue;
     }
 
+    if (equal(tok, "error")) {
+      error_tok(tok, "error");
+    }
+
     if (tok->at_bol) {
       continue;
     }
@@ -736,11 +786,115 @@ static Token *preprocess2(Token *tok) {
   return head.next;
 }
 
-// Entry point function of the preprocessor.
+static void define_macro(char *name, char *buf) {
+  Token *tok = tokenize(new_file("<built-in>", 1, buf));
+  add_macro(name, true, tok);
+}
+
+static Macro *add_builtin(char *name, macro_handler_fn *fn) {
+  Macro *m = add_macro(name, true, NULL);
+  m->handler = fn;
+  return m;
+}
+
+static Token *file_macro(Token *tmpl) {
+  while (tmpl->origin) {
+    tmpl = tmpl->origin;
+  }
+  return new_str_token(tmpl->file->name, tmpl);
+}
+
+static Token *line_macro(Token *tmpl) {
+  while (tmpl->origin) {
+    tmpl = tmpl->origin;
+  }
+  return new_num_token(tmpl->line_no, tmpl);
+}
+
+static void init_macros(void) {
+  // Define predefined macros
+  define_macro("_LP64", "1");
+  define_macro("__C99_MACRO_WITH_VA_ARGS", "1");
+  define_macro("__ELF__", "1");
+  define_macro("__LP64__", "1");
+  define_macro("__SIZEOF_DOUBLE__", "8");
+  define_macro("__SIZEOF_FLOAT__", "4");
+  define_macro("__SIZEOF_INT__", "4");
+  define_macro("__SIZEOF_LONG_DOUBLE__", "8");
+  define_macro("__SIZEOF_LONG_LONG__", "8");
+  define_macro("__SIZEOF_LONG__", "8");
+  define_macro("__SIZEOF_POINTER__", "8");
+  define_macro("__SIZEOF_PTRDIFF_T__", "8");
+  define_macro("__SIZEOF_SHORT__", "2");
+  define_macro("__SIZEOF_SIZE_T__", "8");
+  define_macro("__SIZE_TYPE__", "unsigned long");
+  define_macro("__STDC_HOSTED__", "1");
+  define_macro("__STDC_NO_ATOMICS__", "1");
+  define_macro("__STDC_NO_COMPLEX__", "1");
+  define_macro("__STDC_NO_THREADS__", "1");
+  define_macro("__STDC_NO_VLA__", "1");
+  define_macro("__STDC_VERSION__", "201112L");
+  define_macro("__STDC__", "1");
+  define_macro("__USER_LABEL_PREFIX__", "");
+  define_macro("__alignof__", "_Alignof");
+  define_macro("__riscv64", "1");
+  define_macro("__riscv64__", "1");
+  define_macro("__chibicc__", "1");
+  define_macro("__const__", "const");
+  define_macro("__gnu_linux__", "1");
+  define_macro("__inline__", "inline");
+  define_macro("__linux", "1");
+  define_macro("__linux__", "1");
+  define_macro("__signed__", "signed");
+  define_macro("__typeof__", "typeof");
+  define_macro("__unix", "1");
+  define_macro("__unix__", "1");
+  define_macro("__volatile__", "volatile");
+  define_macro("linux", "1");
+  define_macro("unix", "1");
+
+  add_builtin("__FILE__", file_macro);
+  add_builtin("__LINE__", line_macro);
+}
+
+static void join_adjacent_string_literals(Token *tok1) {
+  while (tok1->kind != TK_EOF) {
+    if (tok1->kind != TK_STR || tok1->next->kind != TK_STR) {
+      tok1 = tok1->next;
+      continue;
+    }
+
+    Token *tok2 = tok1->next;
+    while (tok2->kind == TK_STR)
+      tok2 = tok2->next;
+
+    int len = tok1->ty->array_len;
+    for (Token *t = tok1->next; t != tok2; t = t->next)
+      len = len + t->ty->array_len - 1;
+
+    char *buf = calloc(tok1->ty->base->size, len);
+
+    int i = 0;
+    for (Token *t = tok1; t != tok2; t = t->next) {
+      memcpy(buf + i, t->str, t->ty->size);
+      i = i + t->ty->size - t->ty->base->size;
+    }
+
+    *tok1 = *copy_token(tok1);
+    tok1->ty = array_of(tok1->ty->base, len);
+    tok1->str = buf;
+    tok1->next = tok2;
+    tok1 = tok2;
+  }
+}
+
 Token *preprocess(Token *tok) {
+  init_macros();
+
   tok = preprocess2(tok);
   if (cond_incl)
     error_tok(cond_incl->tok, "unterminated conditional directive");
   convert_keywords(tok);
+  join_adjacent_string_literals(tok);
   return tok;
 }

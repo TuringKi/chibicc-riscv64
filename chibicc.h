@@ -64,6 +64,7 @@ struct Token {
   TokenKind kind;
   Type *ty;
   bool has_space;
+  Token *origin;
 };
 
 void error(char *fmt, ...);
