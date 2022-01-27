@@ -19,12 +19,8 @@ $(OBJS): chibicc.h
 
 
 
-test/macro.exe: riscv64-chibicc test/macro.c
-	./riscv64-chibicc -o test/macro.s test/macro.c
-	$(GCC) -o $@ test/macro.s -xc test/common
-
 test/%.exe: riscv64-chibicc test/%.c
-	$(GCC) -o- -E -P -C test/$*.c | ./riscv64-chibicc -o test/$*.s -
+	./riscv64-chibicc -Itest -o  test/$*.s test/$*.c
 	$(GCC) -o $@ test/$*.s -xc test/common
 
 test: $(TESTS)
@@ -46,16 +42,9 @@ stage2/%.s: riscv64-chibicc self.py %.c
 	./riscv64-chibicc -o stage2/$*.s stage2/$*.c
 
 
-
-
-stage2/test/macro.exe: stage2/riscv64-chibicc test/macro.c
-	mkdir -p stage2/test
-	$(QEMU_RUN) ./stage2/riscv64-chibicc -o stage2/test/macro.s test/macro.c
-	$(GCC) -o $@ stage2/test/macro.s -xc test/common
-
 stage2/test/%.exe: stage2/riscv64-chibicc test/%.c
 	mkdir -p stage2/test
-	$(GCC) -o- -E -P -C test/$*.c | $(QEMU_RUN) ./stage2/riscv64-chibicc -o stage2/test/$*.s -
+	$(QEMU_RUN) ./stage2/riscv64-chibicc -Itest -o stage2/test/$*.s test/$*.c
 	$(GCC) -o $@ stage2/test/$*.s -xc test/common
 
 test-stage2: $(TESTS:test/%=stage2/test/%)

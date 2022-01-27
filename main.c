@@ -1,6 +1,7 @@
 #include "chibicc.h"
 
 char *base_file;
+StringArray include_paths;
 
 static char *opt_o;
 static bool opt_E;
@@ -12,7 +13,28 @@ static void usage(int status) {
   exit(status);
 }
 
+static bool take_arg(char *arg) {
+  char *x[] = {"-o", "-I"};
+
+  for (int i = 0; i < sizeof(x) / sizeof(*x); i++) {
+    if (!strcmp(arg, x[i])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 static void parse_args(int argc, char **argv) {
+
+  for (int i = 1; i < argc; i++) {
+    if (take_arg(argv[i])) {
+      if (!argv[++i]) {
+        usage(1);
+      }
+    }
+  }
+
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--help"))
       usage(0);
@@ -31,6 +53,11 @@ static void parse_args(int argc, char **argv) {
 
     if (!strcmp(argv[i], "-E")) {
       opt_E = true;
+      continue;
+    }
+
+    if (!strncmp(argv[i], "-I", 2)) {
+      strarray_push(&include_paths, argv[i] + 2);
       continue;
     }
 
@@ -62,7 +89,10 @@ static void print_tokens(Token *tok) {
     if (line > 1 && tok->at_bol) {
       fprintf(out, "\n");
     }
-    fprintf(out, " %.*s", tok->len, tok->loc);
+    if (tok->has_space && !tok->at_bol) {
+      fprintf(out, " ");
+    }
+    fprintf(out, "%.*s", tok->len, tok->loc);
     line++;
   }
   fprintf(out, "\n");

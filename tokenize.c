@@ -2,6 +2,7 @@
 #include <ctype.h>
 
 static bool at_bol;
+static bool has_space;
 
 static File *current_file;
 
@@ -111,7 +112,7 @@ static bool is_ident2(char c) { return is_ident1(c) || ('0' <= c && c <= '9'); }
 static int read_punct(char *p) {
   static char *kw[] = {"<<=", ">>=", "...", "==", "!=", "<=", ">=", "->",
                        "+=",  "-=",  "*=",  "/=", "++", "--", "%=", "&=",
-                       "|=",  "^=",  "&&",  "||", "<<", ">>"};
+                       "|=",  "^=",  "&&",  "||", "<<", ">>", "##"};
 
   for (int i = 0; i < sizeof(kw) / sizeof(*kw); i++) {
     if (startwith(p, kw[i])) {
@@ -259,7 +260,8 @@ static Token *new_token(TokenKind kind, char *start, char *end) {
   tok->len = end - start;
   tok->at_bol = at_bol;
   tok->file = current_file;
-  at_bol = false;
+  tok->has_space = has_space;
+  at_bol = has_space = false;
   return tok;
 }
 
@@ -393,12 +395,14 @@ static void add_line_numbers(Token *tok) {
 }
 
 // tokenize 函数将表达式解析为多个token。token的存储结构为链表。
-static Token *tokenize(File *file) {
+Token *tokenize(File *file) {
   current_file = file;
   Token head = {};
   Token *cur = &head;
 
   at_bol = true;
+  has_space = false;
+
   char *p = file->contents;
   while (*p) {
 
@@ -407,6 +411,7 @@ static Token *tokenize(File *file) {
       while (*p != '\n') {
         p++;
       }
+      has_space = true;
       continue;
     }
 
@@ -417,6 +422,7 @@ static Token *tokenize(File *file) {
         error_at(p, "unclosed block comment");
       }
       p = q + 2;
+      has_space = true;
       continue;
     }
 
@@ -424,11 +430,13 @@ static Token *tokenize(File *file) {
     if (*p == '\n') {
       p++;
       at_bol = true;
+      has_space = false;
       continue;
     }
 
     if (isspace(*p)) {
       p++;
+      has_space = true;
       continue;
     }
 
@@ -514,12 +522,37 @@ static char *read_file(char *path) {
 
 File **get_input_files(void) { return input_files; }
 
-static File *new_file(char *name, int file_no, char *contents) {
+File *new_file(char *name, int file_no, char *contents) {
   File *file = calloc(1, sizeof(File));
   file->name = name;
   file->file_no = file_no;
   file->contents = contents;
   return file;
+}
+
+static void remove_backslash_newline(char *p) {
+  int i = 0, j = 0;
+
+  int n = 0;
+
+  while (p[i]) {
+    if (p[i] == '\\' && p[i + 1] == '\n') {
+      i += 2;
+      n++;
+    } else if (p[i] == '\n') {
+      p[j++] = p[i++];
+      for (; n > 0; n--) {
+        p[j++] = '\n';
+      }
+    } else {
+      p[j++] = p[i++];
+    }
+  }
+
+  for (; n > 0; n--) {
+    p[j++] = '\n';
+  }
+  p[j] = '\0';
 }
 
 Token *tokenize_file(char *path) {
@@ -528,7 +561,7 @@ Token *tokenize_file(char *path) {
   if (!p) {
     return NULL;
   }
-
+  remove_backslash_newline(p);
   static int file_no;
   File *file = new_file(path, file_no + 1, p);
 

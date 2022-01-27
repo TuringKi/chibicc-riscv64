@@ -29,6 +29,12 @@ cat $tmp/out1 | $C -E -o $tmp/out2 -
 cat $tmp/out2 | grep -q foo
 check '-E and -o'
 
+# -I
+mkdir $tmp/dir
+echo foo > $tmp/dir/i-option-test
+cat $tmp/dir/i-option-test | $C -I$tmp/dir -E - | grep -q foo
+check -I
+
 # --help
 $C --help 2>&1 | grep -q chibicc
 check --help

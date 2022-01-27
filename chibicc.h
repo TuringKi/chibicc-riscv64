@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -62,6 +63,7 @@ struct Token {
   Token *next;
   TokenKind kind;
   Type *ty;
+  bool has_space;
 };
 
 void error(char *fmt, ...);
@@ -76,6 +78,8 @@ Token *skip(Token *tok, char *s);
 bool consume(Token **rest, Token *tok, char *str);
 void convert_keywords(Token *tok);
 File **get_input_files(void);
+File *new_file(char *name, int file_no, char *contents);
+Token *tokenize(File *file);
 Token *tokenize_file(char *input);
 
 #define unreachable() error("internal error at %s:%d", __FILE__, __LINE__)
@@ -267,3 +271,4 @@ void codegen(Obj *prog, FILE *out);
 int align_to(int n, int align);
 
 extern char *base_file;
+extern StringArray include_paths;

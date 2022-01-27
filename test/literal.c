@@ -88,6 +88,10 @@ int main() {
   ASSERT(-1, 0x1 << 31 >> 31);
   ASSERT(-1, 0b1 << 31 >> 31);
 
+assert(1, size\
+of(char), \
+         "sizeof(char)");
+
   printf("OK\n");
   return 0;
 }

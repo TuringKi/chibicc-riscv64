@@ -1,11 +1,26 @@
 #include "chibicc.h"
 
+typedef struct MacroParam MacroParam;
+struct MacroParam {
+  MacroParam *next;
+  char *name;
+};
+
+typedef struct MacroArg MacroArg;
+struct MacroArg {
+  MacroArg *next;
+  char *name;
+  Token *tok;
+};
+
 typedef struct Macro Macro;
 struct Macro {
   Macro *next;
   char *name;
   Token *body;
   bool deleted;
+  MacroParam *params;
+  bool is_objlike;
 };
 
 typedef struct CondIncl CondIncl;
@@ -26,7 +41,13 @@ static Macro *macros;
 static CondIncl *cond_incl;
 
 static Token *preprocess2(Token *tok);
+static Macro *find_macro(Token *tok);
 static bool is_hash(Token *tok) { return tok->at_bol && equal(tok, "#"); }
+
+static bool file_exists(char *path) {
+  struct stat st;
+  return !stat(path, &st);
+}
 
 static Token *copy_token(Token *tok) {
   Token *t = calloc(1, sizeof(Token));
@@ -75,6 +96,19 @@ static bool hideset_contains(Hideset *hs, char *s, int len) {
   return false;
 }
 
+static Hideset *hideset_intersection(Hideset *hs1, Hideset *hs2) {
+  Hideset head = {};
+  Hideset *cur = &head;
+
+  for (; hs1; hs1 = hs1->next) {
+    if (hideset_contains(hs2, hs1->name, strlen(hs1->name))) {
+      cur = cur->next = new_hideset(hs1->name);
+    }
+  }
+
+  return head.next;
+}
+
 static Token *add_hideset(Token *tok, Hideset *hs) {
   Token head = {};
   Token *cur = &head;
@@ -116,8 +150,6 @@ static Token *skip_cond_incl2(Token *tok) {
   return tok;
 }
 
-// Skip until next `#else` or `#endif`.
-// Nested `#if` and `#endif` are skipped.
 static Token *skip_cond_incl(Token *tok) {
   while (tok->kind != TK_EOF) {
     if (is_hash(tok) && (equal(tok->next, "if") || equal(tok->next, "ifdef") ||
@@ -136,6 +168,34 @@ static Token *skip_cond_incl(Token *tok) {
   return tok;
 }
 
+static char *quote_string(char *str) {
+  int bufsize = 3;
+  for (int i = 0; str[i]; i++) {
+    if (str[i] == '\\' || str[i] == '"') {
+      bufsize++;
+    }
+    bufsize++;
+  }
+
+  char *buf = calloc(1, bufsize);
+  char *p = buf;
+  *p++ = '"';
+  for (int i = 0; str[i]; i++) {
+    if (str[i] == '\\' || str[i] == '"') {
+      *p++ = '\\';
+    }
+    *p++ = str[i];
+  }
+  *p++ = '"';
+  *p++ = '\0';
+  return buf;
+}
+
+static Token *new_str_token(char *str, Token *tmpl) {
+  char *buf = quote_string(str);
+  return tokenize(new_file(tmpl->file->name, tmpl->file->file_no, buf));
+}
+
 static Token *copy_line(Token **rest, Token *tok) {
   Token head = {};
   Token *cur = &head;
@@ -149,13 +209,59 @@ static Token *copy_line(Token **rest, Token *tok) {
   return head.next;
 }
 
-// Read and evaluate a constant expression.
+static Token *new_num_token(int val, Token *tmpl) {
+  char *buf = format("%d\n", val);
+  return tokenize(new_file(tmpl->file->name, tmpl->file->file_no, buf));
+}
+
+static Token *read_const_expr(Token **rest, Token *tok) {
+  tok = copy_line(rest, tok);
+
+  Token head = {};
+  Token *cur = &head;
+
+  while (tok->kind != TK_EOF) {
+
+    if (equal(tok, "defined")) {
+      Token *start = tok;
+      bool has_paren = consume(&tok, tok->next, "(");
+
+      if (tok->kind != TK_IDENT) {
+        error_tok(start, "macro name must be an identifier");
+      }
+      Macro *m = find_macro(tok);
+      tok = tok->next;
+
+      if (has_paren) {
+        tok = skip(tok, ")");
+      }
+
+      cur = cur->next = new_num_token(m ? 1 : 0, start);
+      continue;
+    }
+
+    cur = cur->next = tok;
+    tok = tok->next;
+  }
+
+  cur->next = tok;
+  return head.next;
+}
+
 static long eval_const_expr(Token **rest, Token *tok) {
   Token *start = tok;
-  Token *expr = copy_line(rest, tok->next);
+  Token *expr = read_const_expr(rest, tok->next);
   expr = preprocess2(expr);
   if (expr->kind == TK_EOF) {
     error_tok(start, "no expression");
+  }
+
+  for (Token *t = expr; t->kind != TK_EOF; t = t->next) {
+    if (t->kind == TK_IDENT) {
+      Token *next = t->next;
+      *t = *new_num_token(0, t);
+      t->next = next;
+    }
   }
 
   Token *rest2;
@@ -190,13 +296,240 @@ static Macro *find_macro(Token *tok) {
   return NULL;
 }
 
-static Macro *add_macro(char *name, Token *body) {
+static Macro *add_macro(char *name, bool is_objlike, Token *body) {
   Macro *m = calloc(1, sizeof(Macro));
   m->next = macros;
   m->name = name;
+  m->is_objlike = is_objlike;
   m->body = body;
   macros = m;
   return m;
+}
+
+static MacroParam *read_macro_params(Token **rest, Token *tok) {
+  MacroParam head = {};
+  MacroParam *cur = &head;
+
+  while (!equal(tok, ")")) {
+    if (cur != &head) {
+      tok = skip(tok, ",");
+    }
+
+    if (tok->kind != TK_IDENT) {
+      error_tok(tok, "expected an identifier");
+    }
+    MacroParam *m = calloc(1, sizeof(MacroParam));
+    m->name = strndup(tok->loc, tok->len);
+    cur = cur->next = m;
+    tok = tok->next;
+  }
+  *rest = tok->next;
+  return head.next;
+}
+
+static void read_macro_definition(Token **rest, Token *tok) {
+  if (tok->kind != TK_IDENT)
+    error_tok(tok, "macro name must be an identifier");
+  char *name = strndup(tok->loc, tok->len);
+  tok = tok->next;
+
+  if (!tok->has_space && equal(tok, "(")) {
+    MacroParam *params = read_macro_params(&tok, tok->next);
+    Macro *m = add_macro(name, false, copy_line(rest, tok));
+    m->params = params;
+  } else {
+    add_macro(name, true, copy_line(rest, tok));
+  }
+}
+
+static MacroArg *read_macro_arg_one(Token **rest, Token *tok) {
+  Token head = {};
+  Token *cur = &head;
+  int level = 0;
+
+  while (level > 0 || (!equal(tok, ",") && !equal(tok, ")"))) {
+    if (tok->kind == TK_EOF) {
+      error_tok(tok, "premature end of input");
+    }
+    if (equal(tok, "(")) {
+      level++;
+
+    } else if (equal(tok, ")")) {
+      level--;
+    }
+
+    cur = cur->next = copy_token(tok);
+    tok = tok->next;
+  }
+
+  cur->next = new_eof(tok);
+
+  MacroArg *arg = calloc(1, sizeof(MacroArg));
+  arg->tok = head.next;
+  *rest = tok;
+  return arg;
+}
+
+static char *search_include_paths(char *filename) {
+  if (filename[0] == '/')
+    return filename;
+
+  for (int i = 0; i < include_paths.len; i++) {
+    char *path = format("%s/%s", include_paths.data[i], filename);
+    if (file_exists(path))
+      return path;
+  }
+  return NULL;
+}
+
+static MacroArg *read_macro_args(Token **rest, Token *tok, MacroParam *params) {
+  Token *start = tok;
+  tok = tok->next->next;
+
+  MacroArg head = {};
+  MacroArg *cur = &head;
+
+  MacroParam *pp = params;
+  for (; pp; pp = pp->next) {
+    if (cur != &head)
+      tok = skip(tok, ",");
+    cur = cur->next = read_macro_arg_one(&tok, tok);
+    cur->name = pp->name;
+  }
+
+  if (pp) {
+    error_tok(start, "too many arguments");
+  }
+  skip(tok, ")");
+  *rest = tok;
+  return head.next;
+}
+
+static MacroArg *find_arg(MacroArg *args, Token *tok) {
+  for (MacroArg *ap = args; ap; ap = ap->next)
+    if (tok->len == strlen(ap->name) && !strncmp(tok->loc, ap->name, tok->len))
+      return ap;
+  return NULL;
+}
+
+static char *join_tokens(Token *tok, Token *end) {
+  int len = 1;
+  for (Token *t = tok; t != end && t->kind != TK_EOF; t = t->next) {
+    if (t != tok && t->has_space) {
+      len++;
+    }
+    len += t->len;
+  }
+
+  char *buf = calloc(1, len);
+
+  int pos = 0;
+  for (Token *t = tok; t != end && t->kind != TK_EOF; t = t->next) {
+    if (t != tok && t->has_space) {
+      buf[pos++] = ' ';
+    }
+    strncpy(buf + pos, t->loc, t->len);
+    pos += t->len;
+  }
+  buf[pos] = '\0';
+  return buf;
+}
+
+static Token *stringize(Token *hash, Token *arg) {
+  char *s = join_tokens(arg, NULL);
+  return new_str_token(s, hash);
+}
+
+static Token *paste(Token *lhs, Token *rhs) {
+  char *buf = format("%.*s%.*s", lhs->len, lhs->loc, rhs->len, rhs->loc);
+  Token *tok = tokenize(new_file(lhs->file->name, lhs->file->file_no, buf));
+  if (tok->next->kind != TK_EOF) {
+    error_tok(lhs, "pasting forms '%s', an invalid token", buf);
+  }
+  return tok;
+}
+
+static Token *subst(Token *tok, MacroArg *args) {
+  Token head = {};
+  Token *cur = &head;
+
+  while (tok->kind != TK_EOF) {
+
+    if (equal(tok, "#")) {
+      MacroArg *arg = find_arg(args, tok->next);
+      if (!arg) {
+        error_tok(tok->next, "'#' is not followed by a macro parameter");
+      }
+      cur = cur->next = stringize(tok, arg->tok);
+      tok = tok->next->next;
+      continue;
+    }
+
+    if (equal(tok, "##")) {
+      if (cur == &head) {
+        error_tok(tok, "'##' cannot appear at start of macro expansion");
+      }
+
+      if (tok->next->kind == TK_EOF) {
+        error_tok(tok, "'##' cannot appear at end of macro expansion");
+      }
+
+      MacroArg *arg = find_arg(args, tok->next);
+      if (arg) {
+        if (arg->tok->kind != TK_EOF) {
+          *cur = *paste(cur, arg->tok);
+          for (Token *t = arg->tok->next; t->kind != TK_EOF; t = t->next)
+            cur = cur->next = copy_token(t);
+        }
+        tok = tok->next->next;
+        continue;
+      }
+
+      *cur = *paste(cur, tok->next);
+      tok = tok->next->next;
+      continue;
+    }
+
+    MacroArg *arg = find_arg(args, tok);
+
+    if (arg && equal(tok->next, "##")) {
+      Token *rhs = tok->next->next;
+
+      if (arg->tok->kind == TK_EOF) {
+        MacroArg *arg2 = find_arg(args, rhs);
+        if (arg2) {
+          for (Token *t = arg2->tok; t->kind != TK_EOF; t = t->next)
+            cur = cur->next = copy_token(t);
+        } else {
+          cur = cur->next = copy_token(rhs);
+        }
+        tok = rhs->next;
+        continue;
+      }
+
+      for (Token *t = arg->tok; t->kind != TK_EOF; t = t->next)
+        cur = cur->next = copy_token(t);
+      tok = tok->next;
+      continue;
+    }
+
+    if (arg) {
+      Token *t = preprocess2(arg->tok);
+      t->at_bol = tok->at_bol;
+      t->has_space = tok->has_space;
+      for (; t->kind != TK_EOF; t = t->next)
+        cur = cur->next = copy_token(t);
+      tok = tok->next;
+      continue;
+    }
+
+    cur = cur->next = copy_token(tok);
+    tok = tok->next;
+    continue;
+  }
+
+  cur->next = tok;
+  return head.next;
 }
 
 static bool expand_macro(Token **rest, Token *tok) {
@@ -208,10 +541,72 @@ static bool expand_macro(Token **rest, Token *tok) {
   if (!m) {
     return false;
   }
-  Hideset *hs = hideset_union(tok->hideset, new_hideset(m->name));
-  Token *body = add_hideset(m->body, hs);
+  if (m->is_objlike) {
+    Hideset *hs = hideset_union(tok->hideset, new_hideset(m->name));
+    Token *body = add_hideset(m->body, hs);
+    *rest = append(body, tok->next);
+    (*rest)->at_bol = tok->at_bol;
+    (*rest)->has_space = tok->has_space;
+    return true;
+  }
+
+  if (!equal(tok->next, "("))
+    return false;
+
+  Token *macro_token = tok;
+  MacroArg *args = read_macro_args(&tok, tok, m->params);
+  Token *rparen = tok;
+
+  Hideset *hs = hideset_intersection(macro_token->hideset, rparen->hideset);
+  hs = hideset_union(hs, new_hideset(m->name));
+
+  Token *body = subst(m->body, args);
+  body = add_hideset(body, hs);
   *rest = append(body, tok->next);
+  (*rest)->at_bol = macro_token->at_bol;
+  (*rest)->has_space = macro_token->has_space;
   return true;
+}
+
+static char *read_include_filename(Token **rest, Token *tok, bool *is_dquote) {
+  // Pattern 1: #include "foo.h"
+  if (tok->kind == TK_STR) {
+
+    *is_dquote = true;
+    *rest = skip_line(tok->next);
+    return strndup(tok->loc + 1, tok->len - 2);
+  }
+
+  // Pattern 2: #include <foo.h>
+  if (equal(tok, "<")) {
+
+    Token *start = tok;
+
+    for (; !equal(tok, ">"); tok = tok->next)
+      if (tok->at_bol || tok->kind == TK_EOF)
+        error_tok(tok, "expected '>'");
+
+    *is_dquote = false;
+    *rest = skip_line(tok->next);
+    return join_tokens(start->next, tok);
+  }
+
+  // Pattern 3: #include FOO
+
+  if (tok->kind == TK_IDENT) {
+    Token *tok2 = preprocess2(copy_line(rest, tok));
+    return read_include_filename(&tok2, tok2, is_dquote);
+  }
+
+  error_tok(tok, "expected a filename");
+}
+
+static Token *include_file(Token *tok, char *path, Token *filename_tok) {
+  Token *tok2 = tokenize_file(path);
+  if (!tok2) {
+    error_tok(filename_tok, "%s: cannot open file: %s", path, strerror(errno));
+  }
+  return append(tok2, tok);
 }
 
 static Token *preprocess2(Token *tok) {
@@ -231,35 +626,26 @@ static Token *preprocess2(Token *tok) {
     tok = tok->next;
 
     if (equal(tok, "include")) {
-      tok = tok->next;
+      bool is_dquote;
+      char *filename = read_include_filename(&tok, tok->next, &is_dquote);
 
-      if (tok->kind != TK_STR) {
-        error_tok(tok, "expected a filename");
+      if (filename[0] != '/' && is_dquote) {
+        char *path =
+            format("%s/%s", dirname(strdup(start->file->name)), filename);
+        if (file_exists(path)) {
+          tok = include_file(tok, path, start->next->next);
+          continue;
+        }
       }
 
-      char *path;
-      if (tok->str[0] == '/') {
-        path = tok->str;
+      char *path = search_include_paths(filename);
+      tok = include_file(tok, path ? path : filename, start->next->next);
 
-      } else {
-        path = format("%s/%s", dirname(strdup(tok->file->name)), tok->str);
-      }
-      Token *tok2 = tokenize_file(path);
-      if (!tok2) {
-        error_tok(tok, "%s", strerror(errno));
-      }
-      tok = skip_line(tok->next);
-      tok = append(tok2, tok->next);
       continue;
     }
 
     if (equal(tok, "define")) {
-      tok = tok->next;
-      if (tok->kind != TK_IDENT) {
-        error_tok(tok, "macro name must be an identifier");
-      }
-      char *name = strndup(tok->loc, tok->len);
-      add_macro(name, copy_line(&tok, tok->next));
+      read_macro_definition(&tok, tok->next);
       continue;
     }
 
@@ -271,7 +657,7 @@ static Token *preprocess2(Token *tok) {
       char *name = strndup(tok->loc, tok->len);
       tok = skip_line(tok->next);
 
-      Macro *m = add_macro(name, NULL);
+      Macro *m = add_macro(name, true, NULL);
       m->deleted = true;
       continue;
     }

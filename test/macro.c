@@ -1,23 +1,23 @@
-int assert(int expected, int actual, char *code);
-int printf(char *fmt, ...);
-int sprintf(char *buf, char *fmt, ...);
-int strcmp(char *p, char *q);
-int memcmp(char *p, char *q, long n);
-
 #include "include1.h"
+#include "test.h"
 
 #
 
 /* */ #
 
     int
-    main() {
-  assert(5, include1, "include1");
-  assert(7, include2, "include2");
+    ret3(void) {
+  return 3;
+}
+int dbl(int x) { return x * x; }
+
+int main() {
+  ASSERT(5, include1);
+  ASSERT(7, include2);
 
 #if 0
 #include "/no/such/file"
-  assert(0, 1, "1");
+  ASSERT(0, 1);
 #if nested
 #endif
 #endif
@@ -27,7 +27,7 @@ int memcmp(char *p, char *q, long n);
 #if 1
   m = 5;
 #endif
-  assert(5, m, "m");
+  ASSERT(5, m);
 
 #if 1
 #if 0
@@ -37,7 +37,7 @@ int memcmp(char *p, char *q, long n);
 #endif
   m = 3;
 #endif
-  assert(3, m, "m");
+  ASSERT(3, m);
 
 #if 1 - 1
 #if 1
@@ -54,21 +54,21 @@ int memcmp(char *p, char *q, long n);
   m = 3;
 #endif
 #endif
-  assert(3, m, "m");
+  ASSERT(3, m);
 
 #if 1
   m = 2;
 #else
   m = 3;
 #endif
-  assert(2, m, "m");
+  ASSERT(2, m);
 
 #if 1
   m = 2;
 #else
   m = 3;
 #endif
-  assert(2, m, "m");
+  ASSERT(2, m);
 
 #if 0
   m = 1;
@@ -79,7 +79,7 @@ int memcmp(char *p, char *q, long n);
 #elif 1 * 5
   m = 4;
 #endif
-  assert(3, m, "m");
+  ASSERT(3, m);
 
 #if 1 + 5
   m = 1;
@@ -88,7 +88,7 @@ int memcmp(char *p, char *q, long n);
 #elif 3
   m = 2;
 #endif
-  assert(1, m, "m");
+  ASSERT(1, m);
 
 #if 0
   m = 1;
@@ -101,20 +101,20 @@ int memcmp(char *p, char *q, long n);
 #else
   m = 5;
 #endif
-  assert(2, m, "m");
+  ASSERT(2, m);
 
   int M1 = 5;
 
 #define M1 3
-  assert(3, M1, "M1");
+  ASSERT(3, M1);
 #define M1 4
-  assert(4, M1, "M1");
+  ASSERT(4, M1);
 
 #define M1 3 + 4 +
-  assert(12, M1 5, "5");
+  ASSERT(12, M1 5);
 
 #define M1 3 + 4
-  assert(23, M1 * 5, "5");
+  ASSERT(23, M1 * 5);
 
 #define ASSERT_ assert(
 #define if 5
@@ -136,7 +136,7 @@ int memcmp(char *p, char *q, long n);
 #else
   m = 6;
 #endif
-  assert(5, m, "m");
+  ASSERT(5, m);
 
 #define M 5
 #if M - 5
@@ -144,26 +144,26 @@ int memcmp(char *p, char *q, long n);
 #elif M
   m = 5;
 #endif
-  assert(5, m, "m");
+  ASSERT(5, m);
 
   int M2 = 6;
 #define M2 M2 + 3
-  assert(9, M2, "M2");
+  ASSERT(9, M2);
 
 #define M3 M2 + 3
-  assert(12, M3, "M3");
+  ASSERT(12, M3);
 
   int M4 = 3;
 #define M4 M5 * 5
 #define M5 M4 + 2
-  assert(13, M4, "M4");
+  ASSERT(13, M4);
 
 #ifdef M6
   m = 5;
 #else
   m = 3;
 #endif
-  assert(3, m, "m");
+  ASSERT(3, m);
 
 #define M6
 #ifdef M6
@@ -171,14 +171,14 @@ int memcmp(char *p, char *q, long n);
 #else
   m = 3;
 #endif
-  assert(5, m, "m");
+  ASSERT(5, m);
 
 #ifndef M7
   m = 3;
 #else
   m = 5;
 #endif
-  assert(3, m, "m");
+  ASSERT(3, m);
 
 #define M7
 #ifndef M7
@@ -186,7 +186,7 @@ int memcmp(char *p, char *q, long n);
 #else
   m = 5;
 #endif
-  assert(5, m, "m");
+  ASSERT(5, m);
 
 #if 0
 #ifdef NO_SUCH_MACRO
@@ -195,6 +195,136 @@ int memcmp(char *p, char *q, long n);
 #endif
 #else
 #endif
+
+#define M7() 1
+  int M7 = 5;
+  ASSERT(1, M7());
+  ASSERT(5, M7);
+
+#define M7 ()
+  ASSERT(3, ret3 M7);
+
+#define M8(x, y) x + y
+  ASSERT(7, M8(3, 4));
+
+#define M8(x, y) x *y
+  ASSERT(24, M8(3 + 4, 4 + 5));
+
+#define M8(x, y) (x) * (y)
+  ASSERT(63, M8(3 + 4, 4 + 5));
+
+#define M8(x, y) x y
+  ASSERT(9, M8(, 4 + 5));
+
+#define M8(x, y) x *y
+  ASSERT(20, M8((2 + 3), 4));
+
+#define M8(x, y) x *y
+  ASSERT(12, M8((2, 3), 4));
+
+#define dbl(x) M10(x) * x
+#define M10(x) dbl(x) + 3
+  ASSERT(10, dbl(2));
+
+#define M11(x) #x
+  ASSERT('a', M11(a !b  `"" c)[0]);
+  ASSERT('!', M11(a !b  `"" c)[2]);
+  ASSERT('b', M11(a !b  `"" c)[3]);
+  ASSERT(' ', M11(a !b  `"" c)[4]);
+  ASSERT('`', M11(a !b  `"" c)[5]);
+  ASSERT('"', M11(a !b  `"" c)[6]);
+  ASSERT('"', M11(a !b  `"" c)[7]);
+  ASSERT('c', M11(a !b  `"" c)[9]);
+  ASSERT(0, M11(a !b  `"" c)[10]);
+
+#define paste(x, y) x##y
+  ASSERT(15, paste(1, 5));
+  ASSERT(255, paste(0, xff));
+  ASSERT(3, ({
+           int foobar = 3;
+           paste(foo, bar);
+         }));
+  ASSERT(5, paste(5, ));
+  ASSERT(5, paste(, 5));
+
+#define i 5
+  ASSERT(101, ({
+           int i3 = 100;
+           paste(1 + i, 3);
+         }));
+#undef i
+
+#define paste2(x) x##5
+  ASSERT(26, paste2(1 + 2));
+
+#define paste3(x) 2##x
+  ASSERT(23, paste3(1 + 2));
+
+#define paste4(x, y, z) x##y##z
+  ASSERT(123, paste4(1, 2, 3));
+
+#define M12
+#if defined(M12)
+  m = 3;
+#else
+  m = 4;
+#endif
+  ASSERT(3, m);
+
+#define M12
+#if defined M12
+  m = 3;
+#else
+  m = 4;
+#endif
+  ASSERT(3, m);
+
+#if defined(M12) - 1
+  m = 3;
+#else
+  m = 4;
+#endif
+  ASSERT(4, m);
+
+#if defined(NO_SUCH_MACRO)
+  m = 3;
+#else
+  m = 4;
+#endif
+  ASSERT(4, m);
+
+#if no_such_symbol == 0
+  m = 5;
+#else
+  m = 6;
+#endif
+  ASSERT(5, m);
+
+#define STR(x) #x
+#define M12(x) STR(x)
+#define M13(x) M12(foo.x)
+  ASSERT(0, strcmp(M13(bar), "foo.bar"));
+
+#define M12 foo
+#define M13(x) STR(x)
+#define M14(x) M13(x.M12)
+  ASSERT(0, strcmp(M14(bar), "bar.foo"));
+
+#include "include3.h"
+  ASSERT(3, foo);
+
+#include "include4.h"
+  ASSERT(4, foo);
+
+#define M13 "include3.h"
+#include M13
+  ASSERT(3, foo);
+
+#define M13 < include4.h
+#include M13>
+  ASSERT(4, foo);
+
+#undef foo
 
   printf("OK\n");
   return 0;
