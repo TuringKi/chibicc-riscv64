@@ -25,6 +25,14 @@ static bool take_arg(char *arg) {
   return false;
 }
 
+static void add_default_include_paths(char *argv0) {
+
+  strarray_push(&include_paths, format("%s/include", dirname(strdup(argv0))));
+
+  strarray_push(&include_paths, "/usr/local/include");
+  strarray_push(&include_paths, "/usr/include");
+}
+
 static void parse_args(int argc, char **argv) {
 
   for (int i = 1; i < argc; i++) {
@@ -99,8 +107,9 @@ static void print_tokens(Token *tok) {
 }
 
 int main(int argc, char **argv) {
-  parse_args(argc, argv);
 
+  parse_args(argc, argv);
+  add_default_include_paths(argv[0]);
   // Tokenize and parse.
   Token *tok = tokenize_file(input_path);
   if (!tok) {

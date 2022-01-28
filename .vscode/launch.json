@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/./riscv64-chibicc",
-            "args": ["-Itest", "test/macro.c"],
+            "args": ["-Iinclude",  "-Itest",  "-o",  "test/varargs.s", "test/varargs.c"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

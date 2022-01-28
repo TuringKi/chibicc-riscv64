@@ -5,10 +5,5 @@ int sprintf(char *buf, char *fmt, ...);
 int strcmp(char *p, char *q);
 int strncmp(char *p, char *q, long n);
 int memcmp(char *p, char *q, long n);
-#define va_list void *
-#define va_start(ap, last)                                                     \
-  do {                                                                         \
-    ap = __va_area__;                                                          \
-  } while (0)
 
 void exit(int n);

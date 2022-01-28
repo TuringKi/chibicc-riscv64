@@ -837,7 +837,8 @@ static void init_macros(void) {
   define_macro("__STDC__", "1");
   define_macro("__USER_LABEL_PREFIX__", "");
   define_macro("__alignof__", "_Alignof");
-  define_macro("__riscv64", "1");
+  define_macro("__riscv", "1");
+  define_macro("__riscv_xlen", "64");
   define_macro("__riscv64__", "1");
   define_macro("__chibicc__", "1");
   define_macro("__const__", "const");

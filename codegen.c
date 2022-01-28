@@ -3,8 +3,8 @@
 
 static FILE *output_file;
 static int depth;
-static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5"};
-static char *argfreg[] = {"fa0", "fa1", "fa2", "fa3", "fa4", "fa5"};
+static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6"};
+static char *argfreg[] = {"fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6"};
 static Obj *cur_fn;
 typedef struct ConstVal ConstVal;
 struct ConstVal {

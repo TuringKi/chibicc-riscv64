@@ -1,4 +1,5 @@
 #include "test.h"
+#include <stdarg.h>
 
 int ret3(void) {
   return 3;
