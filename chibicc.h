@@ -106,6 +106,7 @@ struct Obj {
   char *init_data;
   Relocation *rel;
   int stack_size;
+  bool is_stack_param;
 };
 
 typedef struct Relocation Relocation;
@@ -194,6 +195,7 @@ struct Node {
   double fval;
   Type *func_ty;
   Node *args;
+  bool pass_by_stack;
 };
 
 Node *new_cast(Node *expr, Type *ty);

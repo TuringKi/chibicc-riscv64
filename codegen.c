@@ -3,8 +3,10 @@
 
 static FILE *output_file;
 static int depth;
-static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6"};
-static char *argfreg[] = {"fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6"};
+#define MAX_ARGREG 8
+static char *argreg[] = {"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"};
+static char *argfreg[] = {"fa0", "fa1", "fa2", "fa3",
+                          "fa4", "fa5", "fa6", "fa7"};
 static Obj *cur_fn;
 typedef struct ConstVal ConstVal;
 struct ConstVal {
@@ -441,17 +443,63 @@ static ConstVal *create_constval(double fval, TypeKind kind) {
   return cur_const_val;
 }
 
-static void push_args(Node *args) {
-  if (args) {
-    push_args(args->next);
-
-    gen_expr(args);
-    if (is_flonum(args->ty)) {
-      pushf();
-    } else {
-      push();
-    }
+static void push_args2(Node *args, bool first_pass) {
+  if (!args) {
+    return;
   }
+
+  push_args2(args->next, first_pass);
+
+  if ((first_pass && !args->pass_by_stack) ||
+      (!first_pass && args->pass_by_stack)) {
+    return;
+  }
+
+  gen_expr(args);
+
+  if (is_flonum(args->ty)) {
+    pushf();
+  } else {
+    push();
+  }
+}
+
+static int push_args(Node *args, int np, bool is_va_area) {
+  int stack = 0, gp = 0, fp = 0, allp = 0;
+
+  for (Node *arg = args; arg; arg = arg->next) {
+    if (is_va_area && is_flonum(arg->ty)) {
+      if (allp >= np && gp++ >= MAX_ARGREG) {
+        arg->pass_by_stack = true;
+        stack++;
+      }
+
+    } else {
+      if (is_flonum(arg->ty)) {
+        if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
+          arg->pass_by_stack = true;
+          stack++;
+        }
+      } else {
+        if (gp++ >= MAX_ARGREG) {
+          arg->pass_by_stack = true;
+          stack++;
+        }
+      }
+    }
+
+    allp++;
+  }
+
+  if ((depth + stack) % 2 == 1) {
+    println("\t\taddi sp,sp,-8");
+    depth++;
+    stack++;
+  }
+
+  push_args2(args, true);
+  push_args2(args, false);
+  return stack;
 }
 
 static void gen_expr(Node *node) {
@@ -678,8 +726,6 @@ static void gen_expr(Node *node) {
     return;
   }
   case ND_FUNCCAL: {
-    push_args(node->args);
-    gen_expr(node->rhs);
 
     bool is_va_area = false;
     int np = 0, up = 0;
@@ -694,34 +740,44 @@ static void gen_expr(Node *node) {
     if (up > np) {
       is_va_area = true;
     }
-    int fp = 0, allp = 0;
 
+    int stack_args = push_args(node->args, np, is_va_area);
+
+    gen_expr(node->rhs);
+
+    int gp = 0, fp = 0, allp = 0;
     for (Node *arg = node->args; arg; arg = arg->next) {
       if (is_va_area && is_flonum(arg->ty)) {
         if (allp >= np) {
-          popf("ft1");
-          println("\t\tfmv.x.d %s,ft1", argreg[fp++]);
+
+          if (gp < MAX_ARGREG) {
+            popf("ft1");
+            println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+          }
         }
 
       } else {
         if (is_flonum(arg->ty)) {
-          popf(argfreg[fp++]);
+          if (fp < MAX_ARGREG) {
+            popf(argfreg[fp++]);
+          } else if (gp < MAX_ARGREG) {
+            popf("ft1");
+            println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+            fp++;
+          }
 
-        } else {
-          pop(argreg[fp++]);
+        } else if (gp < MAX_ARGREG) {
+          pop(argreg[gp++]);
         }
       }
 
       allp++;
     }
 
-    if (depth % 2 == 0) {
-      println("\t\tjalr s1");
-    } else {
-      println("\t\taddi sp, sp, -8");
-      println("\t\tjalr s1");
-      println("\t\taddi sp, sp, 8");
-    }
+    println("\t\tjalr s1");
+    int tmp_stack_args = 8 * stack_args;
+    println("\t\taddi sp,sp, %d", tmp_stack_args);
+    depth -= stack_args;
 
     println("\t\taddi sp,sp,-8");
     if (node->ty->kind == TY_FLOAT) {
@@ -1060,13 +1116,38 @@ static void assign_lvar_offsets(Obj *prog) {
     if (!fn->is_function) {
       continue;
     }
-    int offset = 16; // 0~16:ra, fp
-    for (Obj *var = fn->locals; var; var = var->next) {
-      offset += var->ty->size;
-      offset = align_to(offset, var->align);
-      var->offset = -offset;
+    int top = 0;
+    int bottom = 24; // 16~24:ra, fp
+
+    int gp = 0, fp = 0;
+
+    for (Obj *var = fn->params; var; var = var->next) {
+      if (is_flonum(var->ty)) {
+        if (fp++ < MAX_ARGREG || (fp >= MAX_ARGREG && gp++ < MAX_ARGREG)) {
+          continue;
+        }
+      } else {
+        if (gp++ < MAX_ARGREG) {
+          continue;
+        }
+      }
+      if (top > 0) {
+        top = align_to(top, 8);
+      }
+      var->offset = top;
+      var->is_stack_param = true;
+      top += var->ty->size;
     }
-    fn->stack_size = align_to(offset, 16);
+
+    for (Obj *var = fn->locals; var; var = var->next) {
+      if (var->is_stack_param) {
+        continue;
+      }
+      bottom += var->ty->size;
+      bottom = align_to(bottom, var->align);
+      var->offset = -bottom;
+    }
+    fn->stack_size = align_to(bottom, 16);
   }
 }
 
@@ -1166,8 +1247,8 @@ void emit_text(Obj *prog) {
     println("%s:", fn->name);
     cur_fn = fn;
 
-    println("\t\tsd ra, -8(sp)");
-    println("\t\tsd fp, -16(sp)");
+    println("\t\tsd ra, -16(sp)");
+    println("\t\tsd fp, -24(sp)");
     println("\t\taddi fp, sp, 0");
     println("\t\tli t1, %d", fn->stack_size);
     println("\t\tsub sp, sp, t1");
@@ -1183,34 +1264,49 @@ void emit_text(Obj *prog) {
       println("\t\tadd t1, t1, fp");
       offset = 0;
 
-      for (int i = np; i < 8; i++) {
+      for (int i = np; i < MAX_ARGREG; i++) {
         println("\t\tsd a%d, %d(t1)", i, offset);
-        //  println("\t\tfsd fa%d, %d(t1)", i, offset);
         offset += 8;
       }
     }
 
-    int i = 0;
-
+    int gpi = 0, fpi = 0;
     for (Obj *var = fn->params; var; var = var->next) {
+      if (var->is_stack_param) {
+        continue;
+      }
       println("\t\tli t1, %d", var->offset);
       println("\t\tadd t1, t1, fp");
       if (var->ty->size == 1) {
-        println("\t\tsb %s, 0(t1)", argreg[i++]);
+        println("\t\tsb %s, 0(t1)", argreg[gpi++]);
       } else if (var->ty->size == 2) {
-        println("\t\tsh %s, 0(t1)", argreg[i++]);
+        println("\t\tsh %s, 0(t1)", argreg[gpi++]);
       } else if (var->ty->size == 4) {
         if (var->ty->kind == TY_FLOAT) {
-          println("\t\tfsw %s, 0(t1)", argfreg[i++]);
+          if (fpi < MAX_ARGREG) {
+            println("\t\tfsw %s, 0(t1)", argfreg[fpi++]);
+
+          } else {
+            println("\t\tmv s1, %s", argreg[gpi++]);
+            println("\t\tfmv.w.x fs1,s1");
+            println("\t\tfsw fs1, 0(t1)");
+          }
         } else {
-          println("\t\tsw %s, 0(t1)", argreg[i++]);
+          println("\t\tsw %s, 0(t1)", argreg[gpi++]);
         }
 
       } else {
         if (var->ty->kind == TY_DOUBLE) {
-          println("\t\tfsd %s, 0(t1)", argfreg[i++]);
+          if (fpi < MAX_ARGREG) {
+            println("\t\tfsd %s, 0(t1)", argfreg[fpi++]);
+          } else {
+            println("\t\tmv s1, %s", argreg[gpi++]);
+            println("\t\tfmv.d.x fs1,s1");
+            println("\t\tfsd fs1, 0(t1)");
+          }
+
         } else {
-          println("\t\tsd %s, 0(t1)", argreg[i++]);
+          println("\t\tsd %s, 0(t1)", argreg[gpi++]);
         }
       }
     }
@@ -1236,8 +1332,8 @@ void emit_text(Obj *prog) {
 
     println("\t\tli t1, %d", fn->stack_size);
     println("\t\tadd sp, sp, t1");
-    println("\t\tld ra, -8(sp)");
-    println("\t\tld fp, -16(sp)");
+    println("\t\tld ra, -16(sp)");
+    println("\t\tld fp, -24(sp)");
     println("\t\tjr ra");
   }
 }
