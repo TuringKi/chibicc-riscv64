@@ -2279,6 +2279,13 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
   enter_scope();
   create_param_lvars(ty->params);
   fn->params = locals;
+
+  for (Obj *param = fn->params; param; param = param->next) {
+    if (param->ty->kind == TY_STRUCT || param->ty->kind == TY_UNION) {
+      param->align = 8;
+    }
+  }
+
   if (ty->is_variadic) {
 
     fn->va_area = new_lvar("__va_area__", array_of(ty_long, 8));

@@ -1022,9 +1022,7 @@ static void gen_expr(Node *node) {
             }
           }
 
-        }
-
-        else {
+        } else {
           for (int i = 0; i < sz; i++) {
             if (gp < MAX_ARGREG) {
               pop(argreg[gp++]);
@@ -1507,6 +1505,41 @@ static void emit_data(Obj *prog) {
   }
 }
 
+static void emit_normal_arg(Type *ty, int *gpi, int *fpi) {
+  if (ty->size == 1) {
+    println("\t\tsb %s, 0(t1)", argreg[(*gpi)++]);
+  } else if (ty->size == 2) {
+    println("\t\tsh %s, 0(t1)", argreg[(*gpi)++]);
+  } else if (ty->size == 4) {
+    if (ty->kind == TY_FLOAT) {
+      if ((*fpi) < MAX_ARGREG) {
+        println("\t\tfsw %s, 0(t1)", argfreg[(*fpi)++]);
+
+      } else {
+        println("\t\tmv s1, %s", argreg[(*gpi)++]);
+        println("\t\tfmv.w.x fs1,s1");
+        println("\t\tfsw fs1, 0(t1)");
+      }
+    } else {
+      println("\t\tsw %s, 0(t1)", argreg[(*gpi)++]);
+    }
+
+  } else {
+    if (ty->kind == TY_DOUBLE) {
+      if ((*fpi) < MAX_ARGREG) {
+        println("\t\tfsd %s, 0(t1)", argfreg[(*fpi)++]);
+      } else {
+        println("\t\tmv s1, %s", argreg[(*gpi)++]);
+        println("\t\tfmv.d.x fs1,s1");
+        println("\t\tfsd fs1, 0(t1)");
+      }
+
+    } else {
+      println("\t\tsd %s, 0(t1)", argreg[(*gpi)++]);
+    }
+  }
+}
+
 void emit_text(Obj *prog) {
 
   for (Obj *fn = prog; fn; fn = fn->next) {
@@ -1551,40 +1584,48 @@ void emit_text(Obj *prog) {
       if (var->is_stack_param) {
         continue;
       }
+
       println("\t\tli t1, %d", var->offset);
       println("\t\tadd t1, t1, fp");
-      if (var->ty->size == 1) {
-        println("\t\tsb %s, 0(t1)", argreg[gpi++]);
-      } else if (var->ty->size == 2) {
-        println("\t\tsh %s, 0(t1)", argreg[gpi++]);
-      } else if (var->ty->size == 4) {
-        if (var->ty->kind == TY_FLOAT) {
-          if (fpi < MAX_ARGREG) {
-            println("\t\tfsw %s, 0(t1)", argfreg[fpi++]);
 
-          } else {
-            println("\t\tmv s1, %s", argreg[gpi++]);
-            println("\t\tfmv.w.x fs1,s1");
-            println("\t\tfsw fs1, 0(t1)");
+      if (var->ty->kind == TY_STRUCT || var->ty->kind == TY_UNION) {
+
+        Type *ty = var->ty;
+        int nm = 0;
+        int cf = 0;
+        for (Member *member = ty->members; member; member = member->next) {
+          nm++;
+          if (member->ty->kind == TY_FLOAT || member->ty->kind == TY_DOUBLE) {
+            cf++;
+          }
+        }
+        int sz = align_to(ty->size, 8);
+        if (sz > 16) {
+          println("\t\tmv s2, %s", argreg[gpi++]);
+          for (int i = 0; i < sz / 8; i++) {
+            println("\t\tld t2, %d(s2)", i * 8);
+            println("\t\tsd t2, %d(t1)", i * 8);
           }
         } else {
-          println("\t\tsw %s, 0(t1)", argreg[gpi++]);
-        }
+          if (nm == 1) {
+            emit_normal_arg(ty->members->ty, &gpi, &fpi);
+          } else if (nm == 2 && cf >= 1) {
 
-      } else {
-        if (var->ty->kind == TY_DOUBLE) {
-          if (fpi < MAX_ARGREG) {
-            println("\t\tfsd %s, 0(t1)", argfreg[fpi++]);
+            emit_normal_arg(ty->members->ty, &gpi, &fpi);
+            println("\t\taddi t1, t1, %d", ty->members->next->offset);
+            emit_normal_arg(ty->members->next->ty, &gpi, &fpi);
           } else {
-            println("\t\tmv s1, %s", argreg[gpi++]);
-            println("\t\tfmv.d.x fs1,s1");
-            println("\t\tfsd fs1, 0(t1)");
+            for (int i = 0; i < sz / 8; i++) {
+              println("\t\tmv t2, %s", argreg[gpi++]);
+              println("\t\tsd t2, %d(t1)", i * 8);
+            }
           }
-
-        } else {
-          println("\t\tsd %s, 0(t1)", argreg[gpi++]);
         }
+
+        continue;
       }
+
+      emit_normal_arg(var->ty, &gpi, &fpi);
     }
 
     gen_stmt(fn->body);

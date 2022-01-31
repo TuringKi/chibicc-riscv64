@@ -174,7 +174,7 @@ typedef struct {
 } Ty7;
 typedef struct {
   float a;
-  int b;
+  double b;
 } Ty8;
 
 int struct_test5(Ty5 x, int n);
@@ -182,6 +182,98 @@ int struct_test4(Ty4 x, int n);
 int struct_test6(Ty6 x, int n);
 int struct_test7(Ty7 x, int n);
 int struct_test8(Ty8 x, int n);
+
+int struct_test4(Ty4 x, int n) {
+
+  printf(">%d,", x.a);
+  printf("%d,", x.b);
+  printf("%d,", x.c);
+  printf("%d<, %d\n", x.d, n);
+
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  case 2:
+    return x.c;
+  default:
+    return x.d;
+  }
+}
+
+int struct_test5(Ty5 x, int n) {
+  printf(">%d,", x.a);
+  printf("%f,", x.b);
+  printf("%lf<, %d\n,", x.c, n);
+
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  default:
+    return x.c;
+  }
+}
+
+int struct_test6(Ty6 x, int n) { return x.a[n]; }
+
+int struct_test7(Ty7 x, int n) {
+  printf("%d\n", n);
+  printf(">%ld,", x.a);
+  printf("%ld,", x.b);
+  printf("%ld<, %d\n,", x.c, n);
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  default:
+    return x.c;
+  }
+}
+
+int struct_test8(Ty8 x, int n) {
+  printf("%d\n", n);
+  printf(">%f,", x.a);
+  printf("%lf<, %d\n,", x.b, n);
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  }
+}
+
+int struct_test14(Ty4 x, int n) {
+  printf(">%d,", x.a);
+  printf("%d,", x.b);
+  printf("%d,", x.c);
+  printf("%d<, %d\n", x.d, n);
+
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  case 2:
+    return x.c;
+  default:
+    return x.d;
+  }
+}
+
+int struct_test15(Ty5 x, int n) {
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  default:
+    return x.c;
+  }
+}
 
 int main() {
   ASSERT(3, ret3());
@@ -367,6 +459,37 @@ int main() {
   ASSERT(20, ({
            Ty8 x = {10, 20};
            struct_test8(x, 1);
+         }));
+
+  ASSERT(20, ({
+           Ty4 x = {10, 20, 30, 40};
+           struct_test14(x, 1);
+         }));
+  ASSERT(10, ({
+           Ty4 x = {10, 20, 30, 40};
+           struct_test14(x, 0);
+         }));
+
+  ASSERT(30, ({
+           Ty4 x = {10, 20, 30, 40};
+           struct_test14(x, 2);
+         }));
+  ASSERT(40, ({
+           Ty4 x = {10, 20, 30, 40};
+           struct_test14(x, 3);
+         }));
+
+  ASSERT(10, ({
+           Ty5 x = {10, 20, 30};
+           struct_test15(x, 0);
+         }));
+  ASSERT(20, ({
+           Ty5 x = {10, 20, 30};
+           struct_test15(x, 1);
+         }));
+  ASSERT(30, ({
+           Ty5 x = {10, 20, 30};
+           struct_test15(x, 2);
          }));
 
   printf("OK\n");
