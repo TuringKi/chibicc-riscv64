@@ -119,3 +119,88 @@ int many_args1_(int a, int b, int c, int d, int e, int f, int g, int h, int i,
   printf("%d\n", m);
   return g / h;
 }
+
+typedef struct {
+  int a, b;
+  short c;
+  char d;
+} Ty4;
+typedef struct {
+  int a;
+  float b;
+  double c;
+} Ty5;
+typedef struct {
+  unsigned char a[3];
+} Ty6;
+typedef struct {
+  long a, b, c;
+} Ty7;
+
+typedef struct {
+  float a;
+  int b;
+} Ty8;
+
+int struct_test4(Ty4 x, int n) {
+
+  printf(">%d,", x.a);
+  printf("%d,", x.b);
+  printf("%d,", x.c);
+  printf("%d<, %d\n", x.d, n);
+
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  case 2:
+    return x.c;
+  default:
+    return x.d;
+  }
+}
+
+int struct_test5(Ty5 x, int n) {
+  printf(">%d,", x.a);
+  printf("%f,", x.b);
+  printf("%lf<, %d\n,", x.c, n);
+
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  default:
+    return x.c;
+  }
+}
+
+int struct_test6(Ty6 x, int n) { return x.a[n]; }
+
+int struct_test7(Ty7 x, int n) {
+  printf("%d\n", n);
+  printf(">%ld,", x.a);
+  printf("%ld,", x.b);
+  printf("%ld<, %d\n,", x.c, n);
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  default:
+    return x.c;
+  }
+}
+
+int struct_test8(Ty8 x, int n) {
+  printf("%d\n", n);
+  printf(">%f,", x.a);
+  printf("%d<, %d\n,", x.b, n);
+  switch (n) {
+  case 0:
+    return x.a;
+  case 1:
+    return x.b;
+  }
+}

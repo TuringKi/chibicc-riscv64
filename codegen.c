@@ -287,51 +287,56 @@ static void load(Node *node) {
   }
 }
 
+static void store_struct(Type *ty, char *rg_val, char *rg_addr) {
+  println("\t\tadd a7, zero, %s", rg_val);
+  for (Member *member = ty->members; member; member = member->next) {
+    println("\t\tli t2, %d", member->offset);
+    println("\t\tadd t2, %s, t2", rg_addr);
+    if (member->ty->size == 1) {
+      if (member->ty->is_unsigned) {
+        println("\t\tlbu s1, %d(a7)", member->offset);
+      } else {
+        println("\t\tlb s1, %d(a7)", member->offset);
+      }
+      println("\t\tsb s1, 0(t2)");
+    } else if (member->ty->size == 2) {
+
+      if (member->ty->is_unsigned) {
+        println("\t\tlhu s1, %d(a7)", member->offset);
+      } else {
+        println("\t\tlh s1, %d(a7)", member->offset);
+      }
+
+      println("\t\tsh s1, 0(t2)");
+    } else if (member->ty->size == 4) {
+      if (member->ty->kind == TY_FLOAT) {
+        println("\t\tflw fs1, %d(a7)", member->offset);
+        println("\t\tfsw fs1, 0(t2)");
+      } else {
+        println("\t\tlw s1, %d(a7)", member->offset);
+        println("\t\tsw s1, 0(t2)");
+      }
+
+    } else {
+      if (member->ty->kind == TY_DOUBLE) {
+        println("\t\tfld fs1, %d(a7)", member->offset);
+        println("\t\tfsd fs1, 0(t2)");
+      } else {
+        println("\t\tld s1, %d(a7)", member->offset);
+        println("\t\tsd s1, 0(t2)");
+      }
+    }
+  }
+  println("\t\tadd %s, zero, a7", rg_val);
+  return;
+}
+
 static void store(Node *lhs, Node *rhs) {
   Type *ty = lhs->ty;
   pop("t0");
 
   if (ty->kind == TY_STRUCT || ty->kind == TY_UNION) {
-    println("\t\tadd a7, zero, s1");
-    for (Member *member = ty->members; member; member = member->next) {
-      println("\t\tli t2, %d", member->offset);
-      println("\t\tadd t2, t0, t2");
-      if (member->ty->size == 1) {
-        if (member->ty->is_unsigned) {
-          println("\t\tlbu s1, %d(a7)", member->offset);
-        } else {
-          println("\t\tlb s1, %d(a7)", member->offset);
-        }
-        println("\t\tsb s1, 0(t2)");
-      } else if (member->ty->size == 2) {
-
-        if (member->ty->is_unsigned) {
-          println("\t\tlhu s1, %d(a7)", member->offset);
-        } else {
-          println("\t\tlh s1, %d(a7)", member->offset);
-        }
-
-        println("\t\tsh s1, 0(t2)");
-      } else if (member->ty->size == 4) {
-        if (member->ty->kind == TY_FLOAT) {
-          println("\t\tflw fs1, %d(a7)", member->offset);
-          println("\t\tfsw fs1, 0(t2)");
-        } else {
-          println("\t\tlw s1, %d(a7)", member->offset);
-          println("\t\tsw s1, 0(t2)");
-        }
-
-      } else {
-        if (member->ty->kind == TY_DOUBLE) {
-          println("\t\tfld fs1, %d(a7)", member->offset);
-          println("\t\tfsd fs1, 0(t2)");
-        } else {
-          println("\t\tld s1, %d(a7)", member->offset);
-          println("\t\tsd s1, 0(t2)");
-        }
-      }
-    }
-    println("\t\tadd s1, zero, a7");
+    store_struct(ty, "s1", "t0");
     return;
   }
 
@@ -443,30 +448,118 @@ static ConstVal *create_constval(double fval, TypeKind kind) {
   return cur_const_val;
 }
 
-static void push_args2(Node *args, bool first_pass) {
-  if (!args) {
-    return;
+static void push_struct(Node *arg) {
+  int sz = align_to(arg->ty->size, 8);
+  println("\t\taddi sp, sp, -%d", sz);
+  for (int i = 0; i < sz / 8; i++) {
+    println("\t\tld t2, %d(s1)", i * 8);
+    println("\t\tsd t2, %d(sp)", i * 8);
   }
+  depth += sz / 8;
+}
 
-  push_args2(args->next, first_pass);
+static void push_args2(Node *args, bool first_pass, int *cnt_depth) {
+  if (!args)
+    return;
+  push_args2(args->next, first_pass, cnt_depth);
 
   if ((first_pass && !args->pass_by_stack) ||
       (!first_pass && args->pass_by_stack)) {
-    return;
+    if (((args->ty->kind == TY_STRUCT || args->ty->kind == TY_UNION))) {
+      if (args->ty->size <= 16) {
+        return;
+      }
+    } else {
+      return;
+    }
   }
 
-  gen_expr(args);
+  switch (args->ty->kind) {
+  case TY_STRUCT:
+  case TY_UNION:
+    if (args->ty->size > 16) {
+      if (first_pass) {
+        gen_expr(args);
+        push_struct(args);
+        *cnt_depth += align_to(args->ty->size, 8);
+        args->param_stack_offset = *cnt_depth;
+      } else {
+        println("\t\tli t0, -%d", args->param_stack_offset);
+        println("\t\tadd s1, s2, t0");
+        push();
+      }
 
-  if (is_flonum(args->ty)) {
+    } else if (args->ty->size <= 16) {
+      gen_expr(args);
+      int nm = 0;
+
+      for (Member *member = args->ty->members; member; member = member->next) {
+        nm++;
+      }
+      if (nm == 2) {
+        println("\t\taddi sp,sp,-16");
+        depth += 2;
+        int i = 0;
+        for (Member *member = args->ty->members; member;
+             member = member->next) {
+
+          if (member->ty->kind == TY_FLOAT) {
+            println("\t\tflw ft0, %d(s1)", member->offset);
+            println("\t\tfsd ft0, %d(sp)", i * 8);
+          } else if (member->ty->kind == TY_DOUBLE) {
+            println("\t\tfld ft0, %d(s1)", member->offset);
+            println("\t\tfsd ft0,  %d(sp)", i * 8);
+          } else {
+            println("\t\tld t0, %d(s1)", member->offset);
+            println("\t\tsd t0,  %d(sp)", i * 8);
+          }
+          i++;
+        }
+      } else {
+        push_struct(args);
+      }
+      if (first_pass && args->pass_by_stack) {
+        *cnt_depth += align_to(args->ty->size, 8);
+      }
+    }
+    break;
+  case TY_FLOAT:
+  case TY_DOUBLE:
+    gen_expr(args);
     pushf();
-  } else {
+    if (first_pass && args->pass_by_stack) {
+      *cnt_depth += 8;
+    }
+    break;
+  default:
+    gen_expr(args);
     push();
+    if (first_pass && args->pass_by_stack) {
+      *cnt_depth += 8;
+    }
   }
+}
+static int count_args_depth(Node *args) {
+  int cnt;
+  for (Node *arg = args; arg; arg = arg->next) {
+    switch (arg->ty->kind) {
+    case TY_STRUCT:
+    case TY_UNION:
+      if (args->ty->size <= 16) {
+        cnt += align_to(arg->ty->size, 8);
+      } else {
+        cnt += 8;
+      }
+      break;
+    default:
+      cnt += 8;
+    }
+  }
+  return cnt;
 }
 
 static int push_args(Node *args, int np, bool is_va_area) {
-  int stack = 0, gp = 0, fp = 0, allp = 0;
-
+  int stack = 0, gp = 0, fp = 0, allp = 0, param_stack_offset = 0;
   for (Node *arg = args; arg; arg = arg->next) {
     if (is_va_area && is_flonum(arg->ty)) {
       if (allp >= np && gp++ >= MAX_ARGREG) {
@@ -475,30 +568,119 @@ static int push_args(Node *args, int np, bool is_va_area) {
       }
 
     } else {
-      if (is_flonum(arg->ty)) {
+
+      Type *ty = arg->ty;
+
+      switch (ty->kind) {
+      case TY_STRUCT:
+      case TY_UNION: {
+        if (ty->size > 16) {
+          arg->pass_by_stack = true;
+          stack += align_to(ty->size, 8) / 8;
+          if (gp++ >= MAX_ARGREG) {
+            stack++;
+          }
+
+        } else {
+
+          int nm = 0;
+          int cf = 0;
+          for (Member *member = ty->members; member; member = member->next) {
+            nm++;
+            if (member->ty->kind == TY_FLOAT || member->ty->kind == TY_DOUBLE) {
+              cf++;
+            }
+          }
+
+          if (nm == 1) {
+            Member *mem = ty->members;
+            switch (mem->ty->kind) {
+            case TY_STRUCT:
+            case TY_UNION:
+              error_tok(mem->name, "parameter not support struct's struct");
+              break;
+            case TY_FLOAT:
+            case TY_DOUBLE:
+              if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
+                mem->pass_by_stack = true;
+                stack++;
+              }
+              break;
+            default:
+              if (gp++ >= MAX_ARGREG) {
+                mem->pass_by_stack = true;
+                stack++;
+              }
+            }
+          } else {
+            // if no floating, all use ax
+            if (cf == 0) {
+              if (ty->size <= 8) {
+                if (gp++ >= MAX_ARGREG) {
+                  arg->pass_by_stack = true;
+                  stack++;
+                }
+              } else {
+                if (gp + 2 >= MAX_ARGREG) {
+                  arg->pass_by_stack = true;
+                  stack += 2;
+                  gp += 2;
+                }
+              }
+            } else if (nm == 2) {
+              if (cf == 2) { // tow floating
+                if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
+                  arg->ty->members->pass_by_stack = true;
+                  stack++;
+                }
+                if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
+                  arg->ty->members->next->pass_by_stack = true;
+                  stack++;
+                }
+              } else {
+                if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
+                  arg->ty->members->pass_by_stack = true;
+                  stack++;
+                }
+                if (gp++ >= MAX_ARGREG) {
+                  arg->pass_by_stack = true;
+                  stack++;
+                }
+              }
+            } else { // nm > 2
+            }
+          }
+        }
+        break;
+      }
+
+      case TY_FLOAT:
+      case TY_DOUBLE:
         if (fp++ >= MAX_ARGREG && gp++ >= MAX_ARGREG) {
           arg->pass_by_stack = true;
           stack++;
         }
-      } else {
+        break;
+      default:
         if (gp++ >= MAX_ARGREG) {
           arg->pass_by_stack = true;
           stack++;
         }
       }
+
+      allp++;
     }
-
-    allp++;
   }
-
   if ((depth + stack) % 2 == 1) {
     println("\t\taddi sp,sp,-8");
     depth++;
     stack++;
   }
+  int cnt_depth = 0;
+  println("\t\tmv s2, sp");
+  push_args2(args, true, &cnt_depth);
+  push_args2(args, false, &cnt_depth);
 
-  push_args2(args, true);
-  push_args2(args, false);
   return stack;
 }
 
@@ -747,12 +929,106 @@ static void gen_expr(Node *node) {
 
     int gp = 0, fp = 0, allp = 0;
     for (Node *arg = node->args; arg; arg = arg->next) {
+
       if (is_va_area && is_flonum(arg->ty)) {
         if (allp >= np) {
 
           if (gp < MAX_ARGREG) {
             popf("ft1");
             println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+          }
+        }
+
+      } else if (arg->ty->kind == TY_STRUCT || arg->ty->kind == TY_UNION) {
+        if (arg->ty->size > 16) {
+
+          if (gp < MAX_ARGREG) {
+            pop(argreg[gp++]);
+          }
+          continue;
+        }
+        int nm = 0;
+        int cf = 0;
+        Type *ty = arg->ty;
+        int sz = align_to(ty->size, 8) / 8;
+        for (Member *member = ty->members; member; member = member->next) {
+          nm++;
+          if (member->ty->kind == TY_FLOAT || member->ty->kind == TY_DOUBLE) {
+            cf++;
+          }
+        }
+
+        if (nm == 1) {
+          Member *mem = ty->members;
+          switch (mem->ty->kind) {
+          case TY_STRUCT:
+          case TY_UNION:
+            error_tok(mem->name, "parameter not support struct's struct");
+            break;
+          case TY_FLOAT:
+          case TY_DOUBLE:
+            if (fp < MAX_ARGREG) {
+              popf(argfreg[fp++]);
+            } else if (gp < MAX_ARGREG) {
+              popf("ft1");
+              println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+              fp++;
+            }
+            break;
+          default:
+            if (gp < MAX_ARGREG) {
+              pop(argreg[gp++]);
+            }
+          }
+        } else if (nm == 2 && cf >= 1) {
+          if (cf == 1) {
+            if (is_flonum(ty->members->ty)) { // floating first
+              if (fp < MAX_ARGREG) {
+                popf(argfreg[fp++]);
+              } else if (gp < MAX_ARGREG) {
+                popf("ft1");
+                println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+                fp++;
+              }
+              if (gp < MAX_ARGREG) {
+                pop(argreg[gp++]);
+              }
+            } else {
+              if (gp < MAX_ARGREG) { // integer first
+                pop(argreg[gp++]);
+              }
+              if (fp < MAX_ARGREG) {
+                popf(argfreg[fp++]);
+              } else if (gp < MAX_ARGREG) {
+                popf("ft1");
+                println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+                fp++;
+              }
+            }
+          } else {
+            if (fp < MAX_ARGREG) {
+              popf(argfreg[fp++]);
+            } else if (gp < MAX_ARGREG) {
+              popf("ft1");
+              println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+              fp++;
+            }
+            if (fp < MAX_ARGREG) {
+              popf(argfreg[fp++]);
+            } else if (gp < MAX_ARGREG) {
+              popf("ft1");
+              println("\t\tfmv.x.d %s,ft1", argreg[gp++]);
+              fp++;
+            }
+          }
+
+        }
+
+        else {
+          for (int i = 0; i < sz; i++) {
+            if (gp < MAX_ARGREG) {
+              pop(argreg[gp++]);
+            }
           }
         }
 

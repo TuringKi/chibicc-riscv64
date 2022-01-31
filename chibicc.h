@@ -196,6 +196,7 @@ struct Node {
   Type *func_ty;
   Node *args;
   bool pass_by_stack;
+  int param_stack_offset;
 };
 
 Node *new_cast(Node *expr, Type *ty);
@@ -244,6 +245,7 @@ struct Member {
   int idx;
   int offset;
   int align;
+  bool pass_by_stack;
 };
 extern Type *ty_void;
 extern Type *ty_bool;
