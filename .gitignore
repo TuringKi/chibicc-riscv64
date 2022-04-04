@@ -7,3 +7,4 @@ tmp
 riscv64-chibicc
 stage2
 .ccls-cache
+.vscode*
