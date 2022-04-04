@@ -163,40 +163,34 @@ typedef enum {
 } NodeKind;
 
 struct Node {
-  NodeKind kind;
-  Node *next;
-  Type *ty;
-  Token *tok;
-
-  Node *lhs;
-  Node *rhs;
-
-  Node *body;
-  Member *member;
-
-  Node *cond;
-  Node *then;
-  Node *els;
-
-  Node *init;
-  Node *inc;
+  bool pass_by_stack;
   char *brk_label;
   char *cont_label;
-
   char *label;
   char *unique_label;
-  Node *goto_next;
-
-  Node *case_next;
-  Node *default_case;
-
-  Obj *var;
-  int64_t val;
   double fval;
-  Type *func_ty;
-  Node *args;
-  bool pass_by_stack;
   int param_stack_offset;
+  int64_t val;
+  Member *member;
+  Node *args;
+  Node *body;
+  Node *case_next;
+  Node *cond;
+  Node *default_case;
+  Node *els;
+  Node *goto_next;
+  Node *inc;
+  Node *init;
+  Node *lhs;
+  Node *next;
+  Node *rhs;
+  Node *then;
+  NodeKind kind;
+  Obj *ret_buffer;
+  Obj *var;
+  Token *tok;
+  Type *func_ty;
+  Type *ty;
 };
 
 Node *new_cast(Node *expr, Type *ty);

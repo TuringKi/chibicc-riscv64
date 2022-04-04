@@ -433,6 +433,11 @@ static void gen_addr(Node *node) {
   case ND_DEREF:
     gen_expr(node->rhs);
     return;
+  case ND_FUNCCAL:
+    if (node->ret_buffer) {
+      gen_expr(node);
+      return;
+    }
   }
 
   error_tok(node->tok, "not an lvalue");
@@ -558,9 +563,15 @@ static int count_args_depth(Node *args) {
   return cnt;
 }
 
-static int push_args(Node *args, int np, bool is_va_area) {
+static int push_args(Node *node, int np, bool is_va_area) {
+
   int stack = 0, gp = 0, fp = 0, allp = 0, param_stack_offset = 0;
-  for (Node *arg = args; arg; arg = arg->next) {
+
+  if (node->ret_buffer && node->ty->size > 16) {
+    gp++;
+  }
+
+  for (Node *arg = node->args; arg; arg = arg->next) {
     if (is_va_area && is_flonum(arg->ty)) {
       if (allp >= np && gp++ >= MAX_ARGREG) {
         arg->pass_by_stack = true;
@@ -678,11 +689,19 @@ static int push_args(Node *args, int np, bool is_va_area) {
   }
   int cnt_depth = 0;
   println("\t\tmv s2, sp");
-  push_args2(args, true, &cnt_depth);
-  push_args2(args, false, &cnt_depth);
+  push_args2(node->args, true, &cnt_depth);
+  push_args2(node->args, false, &cnt_depth);
+
+  if (node->ret_buffer && node->ty->size > 16) {
+    println("\t\tli t1, %d", node->ret_buffer->offset);
+    println("\t\tadd s1, t1, fp");
+    push();
+  }
 
   return stack;
 }
+
+static void copy_ret_buffer(Obj *var) { Type *ty = var->ty; }
 
 static void gen_expr(Node *node) {
   println("  .loc %d %d", node->tok->file->file_no, node->tok->line_no);
@@ -923,11 +942,16 @@ static void gen_expr(Node *node) {
       is_va_area = true;
     }
 
-    int stack_args = push_args(node->args, np, is_va_area);
+    int stack_args = push_args(node, np, is_va_area);
 
     gen_expr(node->rhs);
 
     int gp = 0, fp = 0, allp = 0;
+
+    if (node->ret_buffer && node->ty->size > 16) {
+      pop(argreg[gp++]);
+    }
+
     for (Node *arg = node->args; arg; arg = arg->next) {
 
       if (is_va_area && is_flonum(arg->ty)) {
@@ -1095,6 +1119,12 @@ static void gen_expr(Node *node) {
     }
 
     println("\t\taddi sp,sp,8");
+
+    if (node->ret_buffer && node->ty->size <= 16) {
+      copy_ret_buffer(node->ret_buffer);
+      //   println("  lea %d(%%rbp), %%rax", node->ret_buffer->offset);
+    }
+
     return;
   }
   }
